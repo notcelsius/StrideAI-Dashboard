@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getPIById } from "@/lib/demoAuth";
 
 const SESSION_KEY = "stride_demo_pi_id";
@@ -124,8 +125,15 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {selectedProject.subjects.map((subject) => (
-                      <tr key={subject.subjectId}>
-                        <td>{subject.subjectId}</td>
+                      <tr key={subject.subjectId} className="subject-row">
+                        <td>
+                          <Link
+                            href={`/dashboard/subject/${subject.subjectId}`}
+                            className="subject-link"
+                          >
+                            {subject.subjectId}
+                          </Link>
+                        </td>
                         <td>{subject.participantName}</td>
                         <td>{subject.status}</td>
                         <td>{subject.lastUpload}</td>
