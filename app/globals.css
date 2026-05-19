@@ -320,6 +320,23 @@ th {
   font-size: 0.9rem;
 }
 
+.code-display {
+  border: 2px dashed var(--primary);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  background: var(--primary-soft);
+}
+
+.enrollment-code {
+  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--primary);
+  margin-top: 0.5rem;
+}
+
 @media (max-width: 900px) {
   .content-grid {
     grid-template-columns: 1fr;

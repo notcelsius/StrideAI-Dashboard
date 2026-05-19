@@ -9,6 +9,7 @@ import {
   getProjectSubjects,
   linkPatientSubject,
   deleteUser,
+  createEnrollmentCode,
 } from "@/lib/dashboardApi";
 
 export default function AdminPage() {
@@ -23,6 +24,11 @@ export default function AdminPage() {
   const [linkSub, setLinkSub] = useState("");
   const [linkSubjectId, setLinkSubjectId] = useState("");
   const [linkStatus, setLinkStatus] = useState("");
+
+  const [enrollSubjectId, setEnrollSubjectId] = useState("");
+  const [enrollParticipant, setEnrollParticipant] = useState("");
+  const [enrollStatus, setEnrollStatus] = useState("");
+  const [generatedCode, setGeneratedCode] = useState("");
 
   const [deleteSub, setDeleteSub] = useState("");
   const [deleteUsername, setDeleteUsername] = useState("");
@@ -78,6 +84,25 @@ export default function AdminPage() {
       setSubjects(payload.subjects || []);
     } catch (err) {
       setLinkStatus(err.message);
+    }
+  }
+
+  async function handleEnroll(e) {
+    e.preventDefault();
+    setEnrollStatus("");
+    setGeneratedCode("");
+    if (!enrollSubjectId || !selectedProjectId) {
+      setEnrollStatus("Subject ID is required.");
+      return;
+    }
+    try {
+      const result = await createEnrollmentCode(session, enrollSubjectId, selectedProjectId, enrollParticipant);
+      setGeneratedCode(result.code);
+      setEnrollStatus(`Code generated for ${result.participantName || result.subjectId}.`);
+      setEnrollSubjectId("");
+      setEnrollParticipant("");
+    } catch (err) {
+      setEnrollStatus(err.message);
     }
   }
 
@@ -161,6 +186,39 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="panel">
+        <h2>Generate Enrollment Code</h2>
+        <p className="subtext">Create a one-time code for a patient to enroll in the study via the mobile app.</p>
+        <form onSubmit={handleEnroll} className="admin-form" style={{ maxWidth: "480px" }}>
+          <label>
+            Subject ID
+            <input
+              type="text"
+              value={enrollSubjectId}
+              onChange={(e) => setEnrollSubjectId(e.target.value)}
+              placeholder="e.g. SUB_001"
+            />
+          </label>
+          <label>
+            Participant Name <span className="subtext">(optional override)</span>
+            <input
+              type="text"
+              value={enrollParticipant}
+              onChange={(e) => setEnrollParticipant(e.target.value)}
+              placeholder="Uses subject's name if blank"
+            />
+          </label>
+          <button type="submit" className="primary-btn">Generate Code</button>
+          {generatedCode && (
+            <div className="code-display">
+              <p className="subtext">Give this code to the patient:</p>
+              <p className="enrollment-code">{generatedCode}</p>
+            </div>
+          )}
+          {enrollStatus && <p className={generatedCode ? "success-text" : "error-text"}>{enrollStatus}</p>}
+        </form>
       </section>
 
       <div className="admin-forms-row">
