@@ -1,8 +1,8 @@
 import "@/app/globals.css";
 
 export const metadata = {
-  title: "StrideAI Dashboard Demo",
-  description: "Demo dashboard for PI login, projects, and subjects."
+  title: "StrideAI Dashboard",
+  description: "PI dashboard with Cognito authentication and subject travel monitoring."
 };
 
 export default function RootLayout({ children }) {
