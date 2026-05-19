@@ -4,3 +4,7 @@ out
 coverage
 *.log
 .DS_Store
+.env.local
+__pycache__/
+*.pyc
+backend/.venv/

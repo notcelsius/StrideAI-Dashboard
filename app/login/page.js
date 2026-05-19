@@ -2,35 +2,65 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { authenticatePI } from "@/lib/demoAuth";
-
-const SESSION_KEY = "stride_demo_pi_id";
+import {
+  beginLogin,
+  completeLoginFromUrl,
+  getCognitoConfig,
+  getStoredSession,
+} from "@/lib/cognitoAuth";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [piId, setPiId] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isBusy, setIsBusy] = useState(true);
+  const [session, setSession] = useState(null);
+  const config = getCognitoConfig();
 
   useEffect(() => {
-    const existingSession = window.localStorage.getItem(SESSION_KEY);
-    if (existingSession) {
-      router.replace("/dashboard");
+    let isMounted = true;
+
+    async function bootstrap() {
+      try {
+        const existingSession = getStoredSession();
+        if (existingSession) {
+          if (isMounted) setSession(existingSession);
+          router.replace("/dashboard");
+          return;
+        }
+
+        const completedSession = await completeLoginFromUrl(window.location.href);
+        if (completedSession) {
+          if (isMounted) setSession(completedSession);
+          router.replace("/dashboard");
+          return;
+        }
+      } catch (authError) {
+        if (isMounted) {
+          setError(authError.message || "Unable to sign in with Cognito.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsBusy(false);
+        }
+      }
     }
+
+    bootstrap();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
-  function handleSubmit(event) {
-    event.preventDefault();
+  async function handleSignIn() {
     setError("");
-
-    const authenticatedPI = authenticatePI(piId, password);
-    if (!authenticatedPI) {
-      setError("Invalid PI ID or password.");
-      return;
+    setIsBusy(true);
+    try {
+      await beginLogin();
+    } catch (authError) {
+      setError(authError.message || "Unable to start Cognito sign-in.");
+      setIsBusy(false);
     }
-
-    window.localStorage.setItem(SESSION_KEY, authenticatedPI.piId);
-    router.push("/dashboard");
   }
 
   return (
@@ -39,39 +69,22 @@ export default function LoginPage() {
         <p className="eyebrow">STRIDE-AI Dashboard</p>
         <h1>PI Login</h1>
         <p className="subtext">
-          Sign in using your PI_ID and password to view studies and participants.
+          Sign in with your Cognito-backed PI account to access the dashboard.
         </p>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <label htmlFor="pi-id">PI_ID</label>
-          <input
-            id="pi-id"
-            type="text"
-            value={piId}
-            placeholder="PI_1001"
-            onChange={(event) => setPiId(event.target.value)}
-            autoComplete="username"
-          />
-
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            placeholder="••••••••"
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-          />
+        <div className="auth-form">
+          {!config.isConfigured ? (
+            <p className="error-text">
+              Missing Cognito configuration. Add the `NEXT_PUBLIC_COGNITO_*` values to your local
+              environment before signing in.
+            </p>
+          ) : null}
 
           {error ? <p className="error-text">{error}</p> : null}
 
-          <button type="submit">Sign In</button>
-        </form>
-
-        <div className="demo-credentials">
-          <p className="subtext"><strong>Demo Credentials</strong></p>
-          <p className="credential-item">PI_1001 / stride123</p>
-          <p className="credential-item">PI_2001 / stride456</p>
+          <button type="button" onClick={handleSignIn} disabled={isBusy || !config.isConfigured}>
+            {isBusy ? "Checking session..." : "Sign In With Cognito"}
+          </button>
         </div>
       </section>
     </main>

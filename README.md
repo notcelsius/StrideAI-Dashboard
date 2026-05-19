@@ -1,12 +1,11 @@
-# StrideAI Dashboard Demo (Next.js)
+# StrideAI Dashboard
 
-Demo frontend scaffold for:
+Next.js dashboard for Cognito-authenticated study users, with a Python Lambda backend plan and implementation scaffold for:
 
-- PI login using `PI_ID` + password
-- Listing projects (studies) under the logged-in PI
-- Listing subjects (participants) under each project
-
-This is a mock-data frontend only (no backend integration yet).
+- project-scoped subject roster reads
+- daily miles retrieval by date range
+- CSV upload/download through S3
+- Cognito-authenticated access control backed by DynamoDB
 
 ## Run
 
@@ -17,13 +16,46 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Demo Credentials
+## Environment
 
-- `PI_1001` / `stride123`
-- `PI_2001` / `stride456`
+Copy `.env.example` into `.env.local` and fill in:
 
-## Notes
+- `NEXT_PUBLIC_COGNITO_*` for browser auth
+- `NEXT_PUBLIC_API_BASE_URL` for the API Gateway base URL
 
-- Session is stored in browser `localStorage`.
-- Data is mocked in `lib/demoData.js`.
-- Auth helpers are in `lib/demoAuth.js`.
+If `NEXT_PUBLIC_API_BASE_URL` is not set, the dashboard falls back to local demo data so the UI remains runnable.
+
+## Backend
+
+Backend Lambda scaffolding lives in [backend/lambdas](/Users/rohansheth/Documents/ECS193A/StrideAI-Dashboard/backend/lambdas) and the architecture/spec is in [docs/backend-architecture.md](/Users/rohansheth/Documents/ECS193A/StrideAI-Dashboard/docs/backend-architecture.md).
+
+One-off DynamoDB migration scripts live in [backend/scripts](/Users/rohansheth/Documents/ECS193A/StrideAI-Dashboard/backend/scripts). The current backfill script populates `GSI1PK` and `GSI1SK` on existing upload metadata rows after the `GSI1` index is created.
+
+The backend assumes:
+
+- DynamoDB table `StrideAI`
+- S3 bucket `stride-ai-s3`
+- API Gateway REST proxy integration
+- upload metadata GSI `GSI1` with:
+  - `GSI1PK = USER#<sub>`
+  - `GSI1SK = CREATED#<timestamp>#UPLOAD#<id>`
+
+## Backfill Existing Uploads
+
+After creating the `GSI1` index in DynamoDB, run a dry-run backfill first:
+
+```bash
+python3 backend/scripts/backfill_upload_gsi.py --dry-run
+```
+
+If your AWS access uses a named profile:
+
+```bash
+python3 backend/scripts/backfill_upload_gsi.py --dry-run --profile your-profile
+```
+
+Then run the real write:
+
+```bash
+python3 backend/scripts/backfill_upload_gsi.py
+```
