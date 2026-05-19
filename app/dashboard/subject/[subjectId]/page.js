@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { getStoredSession } from "@/lib/cognitoAuth";
+import { getValidSession } from "@/lib/cognitoAuth";
 import {
   findAccessibleSubject,
   getDefaultDateRange,
@@ -19,6 +19,9 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import dynamic from "next/dynamic";
+
+const LocationHubsPanel = dynamic(() => import("@/components/LocationHubsPanel"), { ssr: false });
 
 function avg(data) {
   if (!data.length) return 0;
@@ -42,7 +45,7 @@ export default function SubjectDetailPage() {
     let isMounted = true;
 
     async function bootstrap() {
-      const storedSession = getStoredSession();
+      const storedSession = await getValidSession();
       if (!storedSession) {
         router.replace("/login");
         return;
@@ -223,6 +226,16 @@ export default function SubjectDetailPage() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Location Hubs</h2>
+        <LocationHubsPanel
+          exportFiles={exportFiles}
+          exportLoaded={exportLoaded}
+          onLoadExports={handleLoadExports}
+          isExportLoading={isExportLoading}
+        />
       </section>
 
       <section className="panel">

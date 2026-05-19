@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getStoredSession, getUserRole, logout } from "@/lib/cognitoAuth";
+import { getValidSession, getUserRole, logout } from "@/lib/cognitoAuth";
 import { getProjectSubjects, getProjects } from "@/lib/dashboardApi";
 
 export default function DashboardPage() {
@@ -20,7 +20,7 @@ export default function DashboardPage() {
     let isMounted = true;
 
     async function bootstrap() {
-      const storedSession = getStoredSession();
+      const storedSession = await getValidSession();
       if (!storedSession) {
         router.replace("/login");
         return;

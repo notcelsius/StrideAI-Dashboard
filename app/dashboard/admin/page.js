@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getStoredSession, getUserRole, logout } from "@/lib/cognitoAuth";
+import { getValidSession, getUserRole, logout } from "@/lib/cognitoAuth";
 import {
   getProjects,
   getProjectSubjects,
+  createSubject,
   linkPatientSubject,
   deleteUser,
   createEnrollmentCode,
@@ -30,6 +31,10 @@ export default function AdminPage() {
   const [enrollStatus, setEnrollStatus] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
 
+  const [newSubjectId, setNewSubjectId] = useState("");
+  const [newParticipantName, setNewParticipantName] = useState("");
+  const [createSubjectStatus, setCreateSubjectStatus] = useState("");
+
   const [deleteSub, setDeleteSub] = useState("");
   const [deleteUsername, setDeleteUsername] = useState("");
   const [deletePoolId, setDeletePoolId] = useState("");
@@ -37,7 +42,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     async function bootstrap() {
-      const stored = getStoredSession();
+      const stored = await getValidSession();
       if (!stored) { router.replace("/login"); return; }
 
       const userRole = getUserRole(stored);
@@ -84,6 +89,25 @@ export default function AdminPage() {
       setSubjects(payload.subjects || []);
     } catch (err) {
       setLinkStatus(err.message);
+    }
+  }
+
+  async function handleCreateSubject(e) {
+    e.preventDefault();
+    setCreateSubjectStatus("");
+    if (!newSubjectId || !selectedProjectId) {
+      setCreateSubjectStatus("Subject ID is required.");
+      return;
+    }
+    try {
+      await createSubject(session, newSubjectId, selectedProjectId, newParticipantName);
+      setCreateSubjectStatus("Subject created successfully.");
+      setNewSubjectId("");
+      setNewParticipantName("");
+      const payload = await getProjectSubjects(session, selectedProjectId);
+      setSubjects(payload.subjects || []);
+    } catch (err) {
+      setCreateSubjectStatus(err.message);
     }
   }
 
@@ -186,6 +210,37 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="panel">
+        <h2>Create Subject</h2>
+        <p className="subtext">Add a new subject to the current project before generating an enrollment code.</p>
+        <form onSubmit={handleCreateSubject} className="admin-form" style={{ maxWidth: "480px" }}>
+          <label>
+            Subject ID
+            <input
+              type="text"
+              value={newSubjectId}
+              onChange={(e) => setNewSubjectId(e.target.value)}
+              placeholder="e.g. SUB_001"
+            />
+          </label>
+          <label>
+            Participant Name <span className="subtext">(optional)</span>
+            <input
+              type="text"
+              value={newParticipantName}
+              onChange={(e) => setNewParticipantName(e.target.value)}
+              placeholder="e.g. Jane Doe"
+            />
+          </label>
+          <button type="submit" className="primary-btn">Create Subject</button>
+          {createSubjectStatus && (
+            <p className={createSubjectStatus.includes("success") ? "success-text" : "error-text"}>
+              {createSubjectStatus}
+            </p>
+          )}
+        </form>
       </section>
 
       <section className="panel">
