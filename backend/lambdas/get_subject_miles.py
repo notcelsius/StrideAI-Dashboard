@@ -34,8 +34,8 @@ def lambda_handler(event, context):
     daily_miles = [
       {
         "date": row.get("date"),
-        "miles": float(row.get("miles", 0)),
-        "distanceMeters": float(row.get("distanceMeters", 0)),
+        "miles": round(float(row.get("miles", 0)), 2),
+        "distanceMeters": round(float(row.get("distanceMeters", 0)), 2),
         "sessionCount": int(row.get("sessionCount", 0)),
       }
       for row in metrics
