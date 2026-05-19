@@ -32,6 +32,7 @@ export default function SubjectDetailPage() {
   const [subjectContext, setSubjectContext] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [exportFiles, setExportFiles] = useState([]);
+  const [exportLoaded, setExportLoaded] = useState(false);
   const [range, setRange] = useState(getDefaultDateRange());
   const [isLoading, setIsLoading] = useState(true);
   const [isExportLoading, setIsExportLoading] = useState(false);
@@ -104,6 +105,7 @@ export default function SubjectDetailPage() {
       setError("");
       const payload = await getSubjectExportManifest(session, subjectContext.subject.subjectId, range);
       setExportFiles(payload.files || []);
+      setExportLoaded(true);
     } catch (loadError) {
       setError(loadError.message || "Unable to load CSV exports.");
     } finally {
@@ -159,7 +161,7 @@ export default function SubjectDetailPage() {
             <input
               type="date"
               value={range.start}
-              onChange={(event) => setRange((current) => ({ ...current, start: event.target.value }))}
+              onChange={(event) => { setRange((current) => ({ ...current, start: event.target.value })); setExportLoaded(false); }}
             />
           </label>
           <label>
@@ -167,7 +169,7 @@ export default function SubjectDetailPage() {
             <input
               type="date"
               value={range.end}
-              onChange={(event) => setRange((current) => ({ ...current, end: event.target.value }))}
+              onChange={(event) => { setRange((current) => ({ ...current, end: event.target.value })); setExportLoaded(false); }}
             />
           </label>
           <button type="button" className="secondary-btn" onClick={handleLoadExports}>
@@ -255,7 +257,11 @@ export default function SubjectDetailPage() {
             </table>
           </div>
         ) : (
-          <p className="subtext">Load exports to view matching CSV files for this range.</p>
+          <p className="subtext">
+            {exportLoaded
+              ? "No CSV files found for this date range."
+              : "Load exports to view matching CSV files for this range."}
+          </p>
         )}
       </section>
 
