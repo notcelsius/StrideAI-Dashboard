@@ -8,6 +8,7 @@ from common import (
     options_response,
     parse_body,
     require_project_access,
+    require_staff_role,
     resolve_access_context,
     response,
     table,
@@ -25,8 +26,7 @@ def lambda_handler(event, context):
             return options_response()
 
         access = resolve_access_context(event)
-        if access["role"] not in {"admin", "coordinator"}:
-            return error_response(403, "Forbidden: only staff can create enrollment codes")
+        require_staff_role(access)
 
         body = parse_body(event)
         subject_id = body.get("subjectId")

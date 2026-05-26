@@ -1,4 +1,4 @@
-from common import error_response, options_response, resolve_access_context, response
+from common import error_response, list_accessible_projects, options_response, project_payload, resolve_access_context, response
 
 
 def lambda_handler(event, context):
@@ -8,23 +8,8 @@ def lambda_handler(event, context):
       return options_response()
 
     access = resolve_access_context(event)
-    if not access.get("projectId") or not access.get("project"):
-      return response(200, {"projects": []})
-
-    project = access["project"]
-    return response(
-      200,
-      {
-        "projects": [
-          {
-            "projectId": access["projectId"],
-            "projectName": project.get("projectName") or access["projectId"],
-            "piName": project.get("piName") or "",
-            "adminName": project.get("adminName") or "",
-          }
-        ]
-      },
-    )
+    projects = list_accessible_projects(access)
+    return response(200, {"projects": [project_payload(project) for project in projects]})
   except PermissionError as exc:
     return error_response(401, str(exc))
   except Exception as exc:

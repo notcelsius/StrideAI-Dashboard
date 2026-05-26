@@ -11,6 +11,9 @@ import {
   linkPatientSubject,
   deleteUser,
   createEnrollmentCode,
+  getPiRequests,
+  approvePiRequest,
+  rejectPiRequest,
 } from "@/lib/dashboardApi";
 
 export default function AdminPage() {
@@ -40,13 +43,17 @@ export default function AdminPage() {
   const [deletePoolId, setDeletePoolId] = useState("");
   const [deleteStatus, setDeleteStatus] = useState("");
 
+  const [piRequests, setPiRequests] = useState([]);
+  const [piRequestStatus, setPiRequestStatus] = useState("");
+  const [isPiRequestsLoading, setIsPiRequestsLoading] = useState(false);
+
   useEffect(() => {
     async function bootstrap() {
       const stored = await getValidSession();
       if (!stored) { router.replace("/login"); return; }
 
       const userRole = getUserRole(stored);
-      if (userRole !== "admin") { router.replace("/dashboard"); return; }
+      if (!["admin", "pi", "coordinator"].includes(userRole)) { router.replace("/dashboard"); return; }
 
       setSession(stored);
       setRole(userRole);
@@ -61,6 +68,24 @@ export default function AdminPage() {
     }
     bootstrap();
   }, [router]);
+
+  async function loadPiRequests(activeSession = session) {
+    if (!activeSession) return;
+    setIsPiRequestsLoading(true);
+    try {
+      const payload = await getPiRequests(activeSession, "pending");
+      setPiRequests(payload.requests || []);
+    } catch (err) {
+      setPiRequestStatus(err.message);
+    } finally {
+      setIsPiRequestsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!session || role !== "admin") return;
+    loadPiRequests(session);
+  }, [session, role]);
 
   useEffect(() => {
     if (!session || !selectedProjectId) return;
@@ -160,16 +185,40 @@ export default function AdminPage() {
     }
   }
 
+  async function handleApprovePiRequest(request) {
+    setPiRequestStatus("");
+    try {
+      await approvePiRequest(session, request.requestId, request.requestedProjectId);
+      setPiRequestStatus(`Approved ${request.email}.`);
+      await loadPiRequests(session);
+    } catch (err) {
+      setPiRequestStatus(err.message);
+    }
+  }
+
+  async function handleRejectPiRequest(request) {
+    setPiRequestStatus("");
+    try {
+      await rejectPiRequest(session, request.requestId);
+      setPiRequestStatus(`Rejected ${request.email}.`);
+      await loadPiRequests(session);
+    } catch (err) {
+      setPiRequestStatus(err.message);
+    }
+  }
+
   if (isLoading) {
     return <main className="centered-page"><p>Loading...</p></main>;
   }
+
+  const isGlobalAdmin = role === "admin";
 
   return (
     <main className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Admin Panel</p>
-          <h1>User Management</h1>
+          <p className="eyebrow">{isGlobalAdmin ? "Admin Panel" : "PI Panel"}</p>
+          <h1>Study Management</h1>
           <p className="subtext">
             Project: <strong>{projects.find((p) => p.projectId === selectedProjectId)?.projectName || selectedProjectId || "—"}</strong>
           </p>
@@ -211,6 +260,73 @@ export default function AdminPage() {
           </div>
         )}
       </section>
+
+      {isGlobalAdmin ? (
+      <section className="panel">
+        <div className="panel-heading-row">
+          <div>
+            <h2>PI Requests</h2>
+            <p className="subtext">Approve project-scoped PI access requests.</p>
+          </div>
+          <button type="button" className="secondary-btn" onClick={() => loadPiRequests(session)}>
+            Refresh
+          </button>
+        </div>
+        {piRequestStatus ? (
+          <p className={piRequestStatus.startsWith("Approved") || piRequestStatus.startsWith("Rejected") ? "success-text" : "error-text"}>
+            {piRequestStatus}
+          </p>
+        ) : null}
+        {isPiRequestsLoading ? <p className="subtext">Loading requests...</p> : null}
+        {!isPiRequestsLoading && piRequests.length === 0 ? (
+          <p className="subtext">No pending PI requests.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Project</th>
+                  <th>Note</th>
+                  <th>Requested</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {piRequests.map((request) => (
+                  <tr key={request.requestId}>
+                    <td>{request.name}</td>
+                    <td>{request.email}</td>
+                    <td>{request.requestedProjectId}</td>
+                    <td>{request.note || "—"}</td>
+                    <td>{request.createdAt ? new Date(request.createdAt).toLocaleString() : "—"}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="primary-btn"
+                          onClick={() => handleApprovePiRequest(request)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => handleRejectPiRequest(request)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      ) : null}
 
       <section className="panel">
         <h2>Create Subject</h2>
@@ -304,6 +420,7 @@ export default function AdminPage() {
           </form>
         </section>
 
+        {isGlobalAdmin ? (
         <section className="panel">
           <h2>Delete User</h2>
           <p className="subtext">Remove a user's profile, unlink from subjects, and optionally delete from Cognito.</p>
@@ -339,6 +456,7 @@ export default function AdminPage() {
             {deleteStatus && <p className={deleteStatus.startsWith("Done") ? "success-text" : "error-text"}>{deleteStatus}</p>}
           </form>
         </section>
+        ) : null}
       </div>
     </main>
   );

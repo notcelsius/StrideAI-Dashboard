@@ -2,9 +2,11 @@ from common import (
     error_response,
     get_subject_record,
     iso_now,
+    normalize_subject_groups,
     options_response,
     parse_body,
     require_project_access,
+    require_staff_role,
     resolve_access_context,
     response,
     table,
@@ -18,13 +20,17 @@ def lambda_handler(event, context):
             return options_response()
 
         access = resolve_access_context(event)
-        if access["role"] not in {"admin", "coordinator"}:
-            return error_response(403, "Forbidden: only staff can create subjects")
+        require_staff_role(access)
 
         body = parse_body(event)
         subject_id = (body.get("subjectId") or "").strip()
         project_id = body.get("projectId") or access.get("projectId")
         participant_name = (body.get("participantName") or "").strip()
+        groups = normalize_subject_groups(
+            body.get("groups"),
+            body.get("groupId"),
+            body.get("groupName"),
+        )
 
         if not subject_id or not project_id:
             return error_response(400, "subjectId and projectId are required")
@@ -36,7 +42,7 @@ def lambda_handler(event, context):
             return error_response(409, "Subject already exists in this project")
 
         now = iso_now()
-        table.put_item(Item={
+        item = {
             "pk": f"PROJECT#{project_id}",
             "sk": f"SUBJECT#{subject_id}",
             "entityType": "SUBJECT",
@@ -46,14 +52,25 @@ def lambda_handler(event, context):
             "status": "active",
             "createdBy": access["callerSub"],
             "createdAt": now,
-        })
+            "groups": groups,
+            "groupIds": [group["groupId"] for group in groups],
+            "groupNames": [group["groupName"] for group in groups],
+        }
+        if groups:
+            item["groupId"] = groups[0]["groupId"]
+            item["groupName"] = groups[0]["groupName"]
+        table.put_item(Item=item)
 
         return response(201, {
             "subjectId": subject_id,
             "projectId": project_id,
             "participantName": participant_name,
             "status": "active",
+            "groups": groups,
+            "groupIds": [group["groupId"] for group in groups],
         })
+    except ValueError as exc:
+        return error_response(400, str(exc))
     except PermissionError as exc:
         return error_response(403, str(exc))
     except Exception as exc:

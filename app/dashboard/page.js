@@ -94,6 +94,7 @@ export default function DashboardPage() {
   }
 
   const role = getUserRole(session);
+  const isStaff = ["admin", "pi", "coordinator"].includes(role);
   const claims = session?.claims || {};
   const displayName = claims.name || claims.email || claims["cognito:username"] || "Dashboard User";
   const displayId = claims.email || claims["cognito:username"] || claims.sub || "unknown-user";
@@ -110,9 +111,9 @@ export default function DashboardPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          {role === "admin" && (
+          {isStaff && (
             <Link href="/dashboard/admin" className="secondary-btn" style={{ textDecoration: "none" }}>
-              Admin
+              Manage
             </Link>
           )}
           <button onClick={logout} className="secondary-btn">

@@ -249,7 +249,15 @@ a {
   gap: 0.6rem;
 }
 
+.auth-divider {
+  height: 1px;
+  margin: 0.5rem 0;
+  background: var(--line);
+}
+
 .auth-form label {
+  display: grid;
+  gap: 0.3rem;
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -471,6 +479,19 @@ th {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.panel-heading-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .admin-form {

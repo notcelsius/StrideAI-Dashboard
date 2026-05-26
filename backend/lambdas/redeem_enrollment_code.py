@@ -52,6 +52,7 @@ def lambda_handler(event, context):
             "pk": f"USER#{caller_sub}",
             "sk": "PROFILE",
             "projectId": project_id,
+            "subjectId": subject_id,
             "username": participant_name or caller_sub,
             "enrolledAt": now,
             "enrollmentCode": code,

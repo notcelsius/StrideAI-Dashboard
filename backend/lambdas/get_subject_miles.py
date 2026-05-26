@@ -19,13 +19,14 @@ def lambda_handler(event, context):
     subject_id = (event.get("pathParameters") or {}).get("subjectId", "")
     start_date = get_query_param(event, "start")
     end_date = get_query_param(event, "end")
+    project_id = get_query_param(event, "projectId")
     if not start_date or not end_date:
       return error_response(400, "start and end query params are required")
     if parse_iso_date(start_date) > parse_iso_date(end_date):
       return error_response(400, "start must be before or equal to end")
 
     access = resolve_access_context(event)
-    subject = require_subject_access(access, subject_id)
+    subject = require_subject_access(access, subject_id, project_id)
     subject_sub = subject.get("userSub")
     if not subject_sub:
       return error_response(404, "Subject is not linked to a user yet")
@@ -47,7 +48,7 @@ def lambda_handler(event, context):
       200,
       {
         "subjectId": subject_id,
-        "projectId": access["projectId"],
+        "projectId": subject.get("projectId") or project_id or access["projectId"],
         "range": {"start": start_date, "end": end_date},
         "dailyMiles": daily_miles,
         "totalMiles": total_miles,

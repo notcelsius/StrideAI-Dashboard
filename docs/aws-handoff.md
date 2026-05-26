@@ -39,6 +39,8 @@ The current direction is:
 ### Auth/access requirements
 - Cognito is the identity system.
 - Backend authorization should ensure a user can only access data for the right project.
+- Cognito group roles are `admin` for global access and `pi`/`coordinator` for project-scoped staff access. `pi_admin` is not used.
+- Admin seed emails are `ehenricson@health.ucdavis.edu` and `ehenricson@ucdavis.edu`; `rsheth@ucdavis.edu` is a temporary development admin.
 - The desired domain model is:
   - `Project` owns many `Subjects`
   - `Subject` belongs to one `Project`
@@ -236,6 +238,7 @@ Shared helpers for:
 - extracting Cognito claims/sub
 - resolving access context from `PROFILE.projectId`
 - resolving roles from Cognito groups
+- enforcing global admin, project-scoped staff, and admin email allowlist helpers
 - requiring project or subject access
 - querying project subjects
 - querying daily metrics
@@ -275,6 +278,14 @@ Shared helpers for:
 - Updates:
   - the subject record’s `userSub`
   - the patient profile’s `projectId`
+
+#### `create_pi_request.py`
+- Public endpoint for PI access requests.
+- Stores `PI_REQUEST` records under `PI_REQUESTS / REQUEST#<requestId>`.
+
+#### `list_pi_requests.py`, `approve_pi_request.py`, `reject_pi_request.py`
+- Admin-only PI review endpoints.
+- Approval creates or finds the Cognito user in the admin/PI pool, adds group `pi`, and writes `USER#<sub> / PROFILE` with project-scoped PI access.
 
 #### `request_upload_url_csv.py`
 - CSV-only presign Lambda.
@@ -403,8 +414,14 @@ Expected REST proxy routes:
 - `GET /projects/{projectId}/subjects`
 - `GET /subjects/{subjectId}/miles?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /subjects/{subjectId}/export.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `POST /admin/subject-links`
+- `POST /admin/subject-groups`
 - `POST /uploads/presign`
+- `POST /pi-requests`
+- `GET /admin/pi-requests`
+- `POST /admin/pi-requests/{requestId}/approve`
+- `POST /admin/pi-requests/{requestId}/reject`
 
 ### 6. Ensure auth context reaches Lambda
 The code expects Cognito claims in API Gateway authorizer context, primarily:
@@ -451,7 +468,16 @@ Response:
       "subjectId": "SUB_001",
       "participantName": "jdoe",
       "status": "active",
-      "lastUploadAt": "2026-05-14T05:08:30.959871+00:00"
+      "lastUploadAt": "2026-05-14T05:08:30.959871+00:00",
+      "groups": [
+        {
+          "groupId": "control",
+          "groupName": "Control"
+        }
+      ],
+      "groupIds": ["control"],
+      "groupId": "control",
+      "groupName": "Control"
     }
   ]
 }
@@ -523,6 +549,92 @@ Response:
   "patientSub": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb",
   "subjectId": "SUB_001",
   "projectId": "proj001"
+}
+```
+
+### `POST /admin/subject-groups`
+Request:
+
+```json
+{
+  "projectId": "proj001",
+  "subjectIds": ["SUB_001", "SUB_002"],
+  "mode": "add",
+  "groups": [
+    {
+      "groupId": "control",
+      "groupName": "Control"
+    }
+  ]
+}
+```
+
+`mode` can be `replace`, `add`, `remove`, or `clear`.
+
+Response:
+
+```json
+{
+  "projectId": "proj001",
+  "mode": "add",
+  "updatedCount": 2,
+  "subjects": [
+    {
+      "subjectId": "SUB_001",
+      "participantName": "jdoe",
+      "status": "active",
+      "groups": [
+        {
+          "groupId": "control",
+          "groupName": "Control"
+        }
+      ],
+      "groupIds": ["control"],
+      "userSub": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb"
+    }
+  ]
+}
+```
+
+### `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
+Optional filters:
+- `projectId` / `projectIds`
+- `studyId` / `studyIds` as aliases for project IDs
+- `groupId` / `groupIds`
+- `subjectId` / `subjectIds`
+- `includeDaily=true` to include each participant's daily metric rows
+
+Response:
+
+```json
+{
+  "range": {
+    "start": "2026-05-01",
+    "end": "2026-05-14"
+  },
+  "aggregate": {
+    "participantCount": 3,
+    "linkedParticipantCount": 2,
+    "unlinkedParticipantCount": 1,
+    "participantsWithMetrics": 1,
+    "totalMiles": 90.16,
+    "totalDistanceMeters": 145105.1,
+    "totalSessionCount": 26,
+    "activeDays": 1,
+    "averageMilesPerParticipant": 30.05
+  },
+  "dailyTotals": [
+    {
+      "date": "2026-05-13",
+      "miles": 90.16,
+      "distanceMeters": 145105.1,
+      "sessionCount": 26,
+      "participantCount": 1
+    }
+  ],
+  "byStudy": [],
+  "byGroup": [],
+  "participants": []
 }
 ```
 
@@ -625,4 +737,3 @@ The next agent should be careful not to overwrite user work while packaging/depl
    - miles by date range
    - CSV export manifest
    - patient linkage
-
