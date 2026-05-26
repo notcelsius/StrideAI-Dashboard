@@ -32,23 +32,22 @@ export default function LoginPage() {
         if (existingSession) {
           if (isMounted) setSession(existingSession);
           router.replace("/dashboard");
-          return;
+          return; // keep isBusy true — page is navigating away
         }
 
         const completedSession = await completeLoginFromUrl(window.location.href);
         if (completedSession) {
           if (isMounted) setSession(completedSession);
           router.replace("/dashboard");
-          return;
+          return; // keep isBusy true — page is navigating away
         }
       } catch (authError) {
         if (isMounted) {
           setError(authError.message || "Unable to sign in with Cognito.");
         }
-      } finally {
-        if (isMounted) {
-          setIsBusy(false);
-        }
+      }
+      if (isMounted) {
+        setIsBusy(false);
       }
     }
 
@@ -92,6 +91,17 @@ export default function LoginPage() {
     } finally {
       setIsRequestingAccess(false);
     }
+  }
+
+  if (isBusy) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <p className="eyebrow">STRIDE-AI Dashboard</p>
+          <p className="subtext">Checking session...</p>
+        </section>
+      </main>
+    );
   }
 
   return (
