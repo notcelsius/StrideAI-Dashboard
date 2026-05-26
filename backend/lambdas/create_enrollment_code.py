@@ -57,7 +57,7 @@ def lambda_handler(event, context):
             "code": code,
             "projectId": project_id,
             "subjectId": subject_id,
-            "participantName": participant_name or subject.get("participantName", ""),
+            "participantName": participant_name or subject.get("participantName") or subject_id,
             "status": "active",
             "createdBy": access["callerSub"],
             "createdAt": now,
@@ -67,7 +67,7 @@ def lambda_handler(event, context):
             "code": code,
             "projectId": project_id,
             "subjectId": subject_id,
-            "participantName": participant_name or subject.get("participantName", ""),
+            "participantName": participant_name or subject.get("participantName") or subject_id,
         })
     except PermissionError as exc:
         return error_response(403, str(exc))

@@ -68,6 +68,30 @@ Response:
 }
 ```
 
+### Get Profile
+```
+GET /profile
+```
+Returns the authenticated patient's enrollment profile. Used by the iOS app
+to determine enrollment status on launch.
+
+Response:
+```json
+{
+  "projectId": "proj001",
+  "subjectId": "SUB_004",
+  "participantName": "SUB_004",
+  "username": "913b7510-4011-7053-1aab-ba3a00ff70a7"
+}
+```
+
+`participantName` is guaranteed non-empty. Falls back to `subjectId` if no
+display name was set during enrollment.
+
+| Status | Error | Meaning |
+|--------|-------|---------|
+| 404 | `"No enrollment profile found"` | User has no PROFILE or no projectId |
+
 ### Get Project Subjects
 ```
 GET /projects/{projectId}/subjects
@@ -232,6 +256,7 @@ All deployed with runtime Python 3.12, 256MB memory, 30s timeout.
 
 | Function name | Route | Method |
 |---------------|-------|--------|
+| `StrideAI-get_profile` | `/profile` | GET |
 | `StrideAI-get_projects` | `/projects` | GET |
 | `StrideAI-get_project_subjects` | `/projects/{projectId}/subjects` | GET |
 | `StrideAI-get_subject_miles` | `/subjects/{subjectId}/miles` | GET |
