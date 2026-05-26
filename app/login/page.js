@@ -42,9 +42,14 @@ export default function LoginPage() {
           return; // keep isBusy true — page is navigating away
         }
       } catch (authError) {
-        if (isMounted) {
-          setError(authError.message || "Unable to sign in with Cognito.");
+        if (!isMounted) return;
+        const msg = authError.message || "";
+        if (msg.includes("invalid_grant") || msg.includes("Token exchange failed")) {
+          window.history.replaceState({}, document.title, "/login");
+          await beginLogin();
+          return;
         }
+        setError(msg || "Unable to sign in with Cognito.");
       }
       if (isMounted) {
         setIsBusy(false);
