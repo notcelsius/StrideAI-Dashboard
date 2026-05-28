@@ -84,7 +84,12 @@ export default function SubjectDetailPage() {
 
       try {
         setError("");
-        const payload = await getSubjectMiles(session, subjectContext.subject.subjectId, range);
+        const payload = await getSubjectMiles(
+          session,
+          subjectContext.subject.subjectId,
+          range,
+          subjectContext.project.projectId
+        );
         if (!isMounted) return;
         setMetrics(payload);
       } catch (loadError) {
@@ -106,7 +111,12 @@ export default function SubjectDetailPage() {
     setIsExportLoading(true);
     try {
       setError("");
-      const payload = await getSubjectExportManifest(session, subjectContext.subject.subjectId, range);
+      const payload = await getSubjectExportManifest(
+        session,
+        subjectContext.subject.subjectId,
+        range,
+        subjectContext.project.projectId
+      );
       setExportFiles(payload.files || []);
       setExportLoaded(true);
     } catch (loadError) {

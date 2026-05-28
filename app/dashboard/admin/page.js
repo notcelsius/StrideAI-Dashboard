@@ -7,6 +7,7 @@ import { getValidSession, getUserRole, logout } from "@/lib/cognitoAuth";
 import {
   getProjects,
   getProjectSubjects,
+  createProject,
   createSubject,
   linkPatientSubject,
   deleteUser,
@@ -24,6 +25,12 @@ export default function AdminPage() {
   const [subjects, setSubjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+
+  const [newProjectId, setNewProjectId] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectPiName, setNewProjectPiName] = useState("");
+  const [newProjectAdminName, setNewProjectAdminName] = useState("");
+  const [createProjectStatus, setCreateProjectStatus] = useState("");
 
   const [linkSub, setLinkSub] = useState("");
   const [linkSubjectId, setLinkSubjectId] = useState("");
@@ -68,6 +75,16 @@ export default function AdminPage() {
     }
     bootstrap();
   }, [router]);
+
+  async function refreshProjects(activeSession = session, nextSelectedProjectId = selectedProjectId) {
+    if (!activeSession) return [];
+    const payload = await getProjects(activeSession);
+    const nextProjects = payload.projects || [];
+    setProjects(nextProjects);
+    const hasSelectedProject = nextProjects.some((project) => project.projectId === nextSelectedProjectId);
+    setSelectedProjectId(hasSelectedProject ? nextSelectedProjectId : nextProjects[0]?.projectId || "");
+    return nextProjects;
+  }
 
   async function loadPiRequests(activeSession = session) {
     if (!activeSession) return;
@@ -114,6 +131,32 @@ export default function AdminPage() {
       setSubjects(payload.subjects || []);
     } catch (err) {
       setLinkStatus(err.message);
+    }
+  }
+
+  async function handleCreateProject(e) {
+    e.preventDefault();
+    setCreateProjectStatus("");
+    if (!newProjectId || !newProjectName) {
+      setCreateProjectStatus("Project ID and study name are required.");
+      return;
+    }
+    try {
+      const created = await createProject(session, {
+        projectId: newProjectId,
+        projectName: newProjectName,
+        piName: newProjectPiName,
+        adminName: newProjectAdminName,
+      });
+      setCreateProjectStatus(`Study ${created.projectId} created successfully.`);
+      setNewProjectId("");
+      setNewProjectName("");
+      setNewProjectPiName("");
+      setNewProjectAdminName("");
+      await refreshProjects(session, created.projectId);
+      setSubjects([]);
+    } catch (err) {
+      setCreateProjectStatus(err.message);
     }
   }
 
@@ -233,6 +276,21 @@ export default function AdminPage() {
 
       <section className="panel">
         <h2>Current Subjects</h2>
+        {projects.length > 1 ? (
+          <label style={{ display: "block", maxWidth: "360px", marginBottom: "1rem" }}>
+            Project
+            <select
+              value={selectedProjectId}
+              onChange={(event) => setSelectedProjectId(event.target.value)}
+            >
+              {projects.map((project) => (
+                <option key={project.projectId} value={project.projectId}>
+                  {project.projectName} ({project.projectId})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {subjects.length === 0 ? (
           <p className="subtext">No subjects in this project.</p>
         ) : (
@@ -325,6 +383,57 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+      </section>
+      ) : null}
+
+      {isGlobalAdmin ? (
+      <section className="panel">
+        <h2>Create Study</h2>
+        <p className="subtext">Create a new project before adding subjects or approving PI access.</p>
+        <form onSubmit={handleCreateProject} className="admin-form" style={{ maxWidth: "520px" }}>
+          <label>
+            Project ID
+            <input
+              type="text"
+              value={newProjectId}
+              onChange={(e) => setNewProjectId(e.target.value)}
+              placeholder="e.g. proj002"
+            />
+          </label>
+          <label>
+            Study Name
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              placeholder="e.g. Balance Study"
+            />
+          </label>
+          <label>
+            PI Name <span className="subtext">(optional)</span>
+            <input
+              type="text"
+              value={newProjectPiName}
+              onChange={(e) => setNewProjectPiName(e.target.value)}
+              placeholder="e.g. Dr. Smith"
+            />
+          </label>
+          <label>
+            Admin Name <span className="subtext">(optional)</span>
+            <input
+              type="text"
+              value={newProjectAdminName}
+              onChange={(e) => setNewProjectAdminName(e.target.value)}
+              placeholder="e.g. Study Admin"
+            />
+          </label>
+          <button type="submit" className="primary-btn">Create Study</button>
+          {createProjectStatus && (
+            <p className={createProjectStatus.includes("created successfully") ? "success-text" : "error-text"}>
+              {createProjectStatus}
+            </p>
+          )}
+        </form>
       </section>
       ) : null}
 

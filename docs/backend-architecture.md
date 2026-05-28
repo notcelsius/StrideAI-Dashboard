@@ -3,6 +3,8 @@
 ## Overview
 The dashboard uses Cognito for authentication, DynamoDB for metadata and authorization lookups, and S3 for CSV blob storage. Daily miles remain the source of truth for analytics. Uploaded CSV files are opaque in v1 and are returned through presigned download URLs.
 
+For the end-to-end identity, project, PI/admin, participant enrollment, and upload flow, see [Backend Data Flow](./backend-data-flow.md).
+
 ## Architecture
 ```text
 [Cognito User]
@@ -93,6 +95,9 @@ Example upload item:
 ```
 
 ## Lambda Set
+- `create_project`
+  - Admin-only study creation.
+  - Writes `PROJECT#<projectId> / METADATA`.
 - `request_upload_url_csv`
   - Validates CSV uploads.
   - Writes upload metadata with `GSI1PK`/`GSI1SK`.

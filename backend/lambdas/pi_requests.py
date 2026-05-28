@@ -10,6 +10,7 @@ from common import (
   iso_now,
   normalize_email,
   options_response,
+  parse_csv_list,
   parse_body,
   require_admin_role,
   require_project_access,
@@ -162,6 +163,19 @@ def ensure_pi_cognito_user(item):
   return username, attributes.get("sub", "")
 
 
+def updated_project_ids(profile, project_id):
+  project_ids = []
+  seen = set()
+  for candidate in parse_csv_list((profile or {}).get("projectIds")):
+    if candidate in seen:
+      continue
+    seen.add(candidate)
+    project_ids.append(candidate)
+  if project_id not in seen:
+    project_ids.append(project_id)
+  return project_ids
+
+
 def approve_pi_request(event):
   access = resolve_access_context(event)
   require_admin_role(access)
@@ -185,15 +199,18 @@ def approve_pi_request(event):
   username, cognito_sub = ensure_pi_cognito_user(item)
   now = iso_now()
   if cognito_sub:
+    profile_key = {"pk": f"USER#{cognito_sub}", "sk": "PROFILE"}
+    profile = table.get_item(Key=profile_key).get("Item")
+    project_ids = updated_project_ids(profile, project_id)
     table.update_item(
-      Key={"pk": f"USER#{cognito_sub}", "sk": "PROFILE"},
+      Key=profile_key,
       UpdateExpression=(
-        "SET projectId = :project_id, username = :username, email = :email, "
-        "#role = :role, updatedAt = :updated_at"
+        "SET projectIds = :project_ids, username = :username, email = :email, "
+        "#role = :role, updatedAt = :updated_at REMOVE projectId"
       ),
       ExpressionAttributeNames={"#role": "role"},
       ExpressionAttributeValues={
-        ":project_id": project_id,
+        ":project_ids": project_ids,
         ":username": item.get("name") or username,
         ":email": item["email"],
         ":role": "pi",

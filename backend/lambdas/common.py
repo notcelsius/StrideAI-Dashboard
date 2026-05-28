@@ -178,6 +178,17 @@ def parse_csv_list(value):
   return [str(item).strip() for item in values if str(item).strip()]
 
 
+def normalize_project_ids(value):
+  project_ids = []
+  seen = set()
+  for project_id in parse_csv_list(value):
+    if project_id in seen:
+      continue
+    seen.add(project_id)
+    project_ids.append(project_id)
+  return project_ids
+
+
 def normalize_subject_groups(raw_groups=None, group_id=None, group_name=None):
   groups = []
   if raw_groups is None:
@@ -286,17 +297,23 @@ def resolve_access_context(event):
       "role": role,
       "profile": None,
       "projectId": "",
+      "projectIds": [],
       "project": None,
       "username": claims.get("preferred_username") or claims.get("email") or caller_sub,
     }
 
   project_id = profile.get("projectId") or ""
+  project_ids = normalize_project_ids(profile.get("projectIds"))
+  if not is_staff_role(role) and project_id:
+    project_ids = normalize_project_ids(project_ids + [project_id])
+
   project = get_item(f"PROJECT#{project_id}", "METADATA") if project_id else None
   return {
     "callerSub": caller_sub,
     "role": role,
     "profile": profile,
     "projectId": project_id,
+    "projectIds": project_ids,
     "project": project,
     "subjectId": profile.get("subjectId") or "",
     "username": profile.get("username") or claims.get("preferred_username") or claims.get("email") or caller_sub,
@@ -306,7 +323,7 @@ def resolve_access_context(event):
 def require_project_access(access_context, project_id):
   if access_context["role"] == "admin":
     return
-  if not project_id or access_context.get("projectId") != project_id:
+  if not project_id or project_id not in access_context.get("projectIds", []):
     raise PermissionError("Forbidden: you do not have access to this project")
 
 
@@ -324,9 +341,9 @@ def require_subject_access(access_context, subject_id, project_id=None):
   if not subject:
     raise LookupError("Subject not found")
 
-  if access_context["role"] == "patient":
+  if not is_staff_role(access_context["role"]):
     linked_sub = subject.get("userSub")
-    if linked_sub and linked_sub != access_context["callerSub"]:
+    if linked_sub != access_context["callerSub"]:
       raise PermissionError("Forbidden: patient access is limited to the assigned subject")
 
   return subject
@@ -373,12 +390,19 @@ def list_accessible_projects(access_context, project_ids=None):
       return projects
     return query_all_project_metadata()
 
-  project_id = access_context.get("projectId")
-  if not project_id or not access_context.get("project"):
+  accessible_ids = access_context.get("projectIds", [])
+  if not accessible_ids:
     return []
-  if requested_ids and project_id not in requested_ids:
+  selected_ids = requested_ids or accessible_ids
+  if any(project_id not in accessible_ids for project_id in selected_ids):
     raise PermissionError("Forbidden: you do not have access to this project")
-  return [access_context["project"]]
+
+  projects = []
+  for project_id in selected_ids:
+    project = get_item(f"PROJECT#{project_id}", "METADATA")
+    if project:
+      projects.append(project)
+  return projects
 
 
 def project_payload(project):

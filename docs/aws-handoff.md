@@ -11,6 +11,8 @@ This document is the handoff for the current StrideAI dashboard/backend work. It
 
 This handoff is intended for another agent or engineer to finish the AWS-side setup and connect the deployed backend to the frontend.
 
+For the current end-to-end identity, project, PI/admin, participant enrollment, and upload flow, see [Backend Data Flow](./backend-data-flow.md).
+
 ## Current Product Goal
 The app uses Cognito and AWS. The dashboard needs to support:
 
@@ -415,6 +417,7 @@ Expected REST proxy routes:
 - `GET /subjects/{subjectId}/miles?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /subjects/{subjectId}/export.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- `POST /admin/projects`
 - `POST /admin/subject-links`
 - `POST /admin/subject-groups`
 - `POST /uploads/presign`
@@ -440,6 +443,31 @@ NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.us-east-2.amazonaws.com
 When this is not set, the frontend uses demo fallback data.
 
 ## API Contract Implemented In Code
+
+### `POST /admin/projects`
+Admin-only study creation.
+
+Request:
+
+```json
+{
+  "projectId": "proj002",
+  "projectName": "Balance Study",
+  "piName": "Dr. Smith",
+  "adminName": "Study Admin"
+}
+```
+
+Response:
+
+```json
+{
+  "projectId": "proj002",
+  "projectName": "Balance Study",
+  "piName": "Dr. Smith",
+  "adminName": "Study Admin"
+}
+```
 
 ### `GET /projects`
 Response:

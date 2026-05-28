@@ -21,6 +21,9 @@ def lambda_handler(event, context):
     require_project_access(access, project_id)
 
     subjects = query_project_subjects(project_id)
+    if not is_staff_role(access["role"]):
+      subjects = [subject for subject in subjects if subject.get("userSub") == access["callerSub"]]
+
     payload = [serialize_subject(subject, include_user_sub=is_staff_role(access["role"])) for subject in subjects]
 
     return response(200, {"projectId": project_id, "subjects": payload})
