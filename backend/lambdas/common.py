@@ -456,6 +456,21 @@ def build_upload_gsi_keys(user_sub, created_at, upload_pk):
   }
 
 
+def update_subject_last_upload(project_id, subject_id, timestamp):
+  if not project_id or not subject_id or not timestamp:
+    return
+
+  try:
+    table.update_item(
+      Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
+      UpdateExpression="SET lastUploadAt = :timestamp, updatedAt = :timestamp",
+      ConditionExpression="attribute_exists(pk) AND attribute_exists(sk)",
+      ExpressionAttributeValues={":timestamp": timestamp},
+    )
+  except Exception as exc:
+    print(f"Unable to update subject lastUploadAt for {project_id}/{subject_id}: {exc}")
+
+
 def query_uploads_for_user(user_sub, start_date, end_date):
   start_timestamp = f"{start_date}T00:00:00+00:00"
   end_timestamp = f"{end_date}T23:59:59.999999+00:00"

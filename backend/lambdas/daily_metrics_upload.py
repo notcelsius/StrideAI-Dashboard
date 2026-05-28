@@ -34,9 +34,10 @@ def lambda_handler(event, context):
         if not isinstance(raw_days, list) or not raw_days:
             return error_response(400, "days must be a non-empty array")
 
-        username, project_name, pi_name, admin_name = get_user_and_project(cognito_sub)
+        username, project_id, project_name, pi_name, admin_name, subject_id = get_user_and_project(cognito_sub)
 
         upserted = []
+        latest_updated_at = None
         for raw_day in raw_days:
             validated = validate_day_payload(raw_day)
             item = add_daily_metric_delta(
@@ -55,6 +56,11 @@ def lambda_handler(event, context):
                     "sessionCount": int(item.get("sessionCount", 0)),
                 }
             )
+            updated_at = item.get("updatedAt")
+            if updated_at and (not latest_updated_at or updated_at > latest_updated_at):
+                latest_updated_at = updated_at
+
+        update_subject_last_upload(project_id, subject_id, latest_updated_at)
 
         return response(
             200,
@@ -112,31 +118,36 @@ def parse_body(event):
 
 def get_user_and_project(cognito_sub):
     default_username = "unknown_user"
+    default_project_id = ""
     default_project = "unassigned"
     default_pi = "unknown_pi"
     default_admin = "unknown_admin"
+    default_subject_id = ""
 
     user_resp = table.get_item(Key={"pk": f"USER#{cognito_sub}", "sk": "PROFILE"})
     user = user_resp.get("Item")
     if not user:
-        return default_username, default_project, default_pi, default_admin
+        return default_username, default_project_id, default_project, default_pi, default_admin, default_subject_id
 
     username = user.get("username") or default_username
     project_id = user.get("projectId")
+    subject_id = user.get("subjectId") or default_subject_id
 
     if not project_id:
-        return username, default_project, default_pi, default_admin
+        return username, default_project_id, default_project, default_pi, default_admin, subject_id
 
     proj_resp = table.get_item(Key={"pk": f"PROJECT#{project_id}", "sk": "METADATA"})
     project = proj_resp.get("Item")
     if not project:
-        return username, default_project, default_pi, default_admin
+        return username, project_id, default_project, default_pi, default_admin, subject_id
 
     return (
         username,
+        project_id,
         project.get("projectName") or default_project,
         project.get("piName") or default_pi,
         project.get("adminName") or default_admin,
+        subject_id,
     )
 
 
@@ -208,6 +219,21 @@ def add_daily_metric_delta(cognito_sub, username, project_name, pi_name, admin_n
         ReturnValues="ALL_NEW",
     )
     return result.get("Attributes", {})
+
+
+def update_subject_last_upload(project_id, subject_id, timestamp):
+    if not project_id or not subject_id or not timestamp:
+        return
+
+    try:
+        table.update_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
+            UpdateExpression="SET lastUploadAt = :timestamp, updatedAt = :timestamp",
+            ConditionExpression="attribute_exists(pk) AND attribute_exists(sk)",
+            ExpressionAttributeValues={":timestamp": timestamp},
+        )
+    except Exception as exc:
+        print(f"Unable to update subject lastUploadAt for {project_id}/{subject_id}: {exc}")
 
 
 def response(status, body):

@@ -180,6 +180,32 @@ The S3 object key is built from project metadata:
 
 Known issue: upload paths do not consistently stamp `PROJECT#<projectId> / SUBJECT#<subjectId>.lastUploadAt`.
 
+### `lastUploadAt` audit
+
+Audit date: 2026-05-28.
+
+There are three live upload-style paths:
+
+- `POST /daily-metrics-upload/daily-metrics-upload` -> `daily-metrics-upload`
+- `POST /` -> `Stride-AI-Upload`
+- `POST /uploads/presign` -> `StrideAI-request_upload_url_csv`
+
+Findings:
+
+- `Stride-AI-Upload` already attempts to update the subject record, but its IAM role only allows `dynamodb:GetItem` and `dynamodb:PutItem` on `StrideAI`. CloudWatch shows repeated `AccessDeniedException` failures for `dynamodb:UpdateItem` while trying to update `proj001/EKH_TEST`.
+- `daily-metrics-upload` has `dynamodb:UpdateItem` permission, but the handler only upserts `USER#<sub> / DAY#<date>` rows. It does not read `subjectId` from the participant profile and does not update the linked subject.
+- `StrideAI-request_upload_url_csv` writes upload metadata at presign time. It does not update `lastUploadAt`; stamping here is convenient but can mark activity even if the client never completes the S3 `PUT`.
+- Root `POST /` is integrated with `Stride-AI-Upload` and currently has API Gateway authorization set to `NONE`. The Lambda tries to recover identity by decoding the bearer JWT payload itself. It should be protected by the Cognito authorizer if the route remains active.
+
+Recommended fix order:
+
+1. Add `dynamodb:UpdateItem` to `Stride-AI-Upload-role-yry790ej` for the `StrideAI` table.
+2. Patch `daily_metrics_upload.py` to return `projectId` and `subjectId` from the profile lookup, then update the linked subject's `lastUploadAt` after successful metric upsert.
+3. Add a condition to subject timestamp updates so stale profiles cannot create partial subject rows.
+4. For `/uploads/presign`, stamp `lastUploadAt` when upload metadata is created; if exact completion semantics become important, add an upload-complete callback or S3 event path later.
+5. Put the Cognito authorizer on root `POST /` or retire that route in favor of `/uploads/presign`.
+6. Backfill existing subjects from the latest upload metadata and daily metric timestamps.
+
 ## Dashboard Read Paths
 
 Project list:
@@ -223,8 +249,8 @@ For multi-project staff users, subject detail calls pass `projectId` explicitly 
 
 ## Current Weak Points
 
-- PI request source exists, but live functions/routes may not be deployed.
 - Upload paths do not consistently update subject `lastUploadAt`.
+- Root `POST /` upload route needs Cognito authorization or deprecation.
 
 ## Target Direction
 
