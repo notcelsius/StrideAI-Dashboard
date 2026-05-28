@@ -1,5 +1,7 @@
 import hashlib
 import os
+import traceback
+import uuid
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
@@ -142,9 +144,11 @@ def ensure_pi_cognito_user(item):
   email = item["email"]
   user = find_cognito_user_by_email(email)
   if not user:
+    # Staff pool uses email as an alias, so the Username cannot be email-format.
+    # Use a UUID and rely on the email attribute/alias for sign-in.
     resp = cognito.admin_create_user(
       UserPoolId=PI_USER_POOL_ID,
-      Username=email,
+      Username=str(uuid.uuid4()),
       UserAttributes=[
         {"Name": "email", "Value": email},
         {"Name": "email_verified", "Value": "true"},
@@ -336,6 +340,7 @@ def handle_pi_request(handler, event):
   except cognito.exceptions.ResourceNotFoundException:
     return error_response(500, "Cognito user pool or group was not found")
   except Exception as exc:
+    traceback.print_exc()
     return error_response(500, "Internal server error", str(exc))
 
 
@@ -366,4 +371,5 @@ def lambda_handler(event, context):
   except cognito.exceptions.ResourceNotFoundException:
     return error_response(500, "Cognito user pool or group was not found")
   except Exception as exc:
+    traceback.print_exc()
     return error_response(500, "Internal server error", str(exc))
