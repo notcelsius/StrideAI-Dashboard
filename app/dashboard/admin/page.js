@@ -15,6 +15,7 @@ import {
   getPiRequests,
   approvePiRequest,
   rejectPiRequest,
+  addPi,
 } from "@/lib/dashboardApi";
 
 export default function AdminPage() {
@@ -53,6 +54,11 @@ export default function AdminPage() {
   const [piRequests, setPiRequests] = useState([]);
   const [piRequestStatus, setPiRequestStatus] = useState("");
   const [isPiRequestsLoading, setIsPiRequestsLoading] = useState(false);
+
+  const [addPiEmail, setAddPiEmail] = useState("");
+  const [addPiName, setAddPiName] = useState("");
+  const [addPiProjectId, setAddPiProjectId] = useState("");
+  const [addPiStatus, setAddPiStatus] = useState("");
 
   useEffect(() => {
     async function bootstrap() {
@@ -250,6 +256,29 @@ export default function AdminPage() {
     }
   }
 
+  async function handleAddPi(e) {
+    e.preventDefault();
+    setAddPiStatus("");
+    if (!addPiEmail || !addPiName || !addPiProjectId) {
+      setAddPiStatus("All fields required.");
+      return;
+    }
+    try {
+      const result = await addPi(session, {
+        email: addPiEmail.trim(),
+        name: addPiName.trim(),
+        projectId: addPiProjectId,
+      });
+      const pids = (result.projectIds || []).join(", ");
+      setAddPiStatus(`Added ${result.email}. Project access: ${pids}. Cognito invite email sent.`);
+      setAddPiEmail("");
+      setAddPiName("");
+      setAddPiProjectId("");
+    } catch (err) {
+      setAddPiStatus(err.message);
+    }
+  }
+
   if (isLoading) {
     return <main className="centered-page"><p>Loading...</p></main>;
   }
@@ -321,10 +350,61 @@ export default function AdminPage() {
 
       {isGlobalAdmin ? (
       <section className="panel">
+        <h2>Add PI</h2>
+        <p className="subtext">
+          Create a Cognito account in the admin pool, assign to a study, send an invite email with a temp password.
+          Calling this again for an existing PI adds the project to their access list.
+        </p>
+        {addPiStatus ? (
+          <p className={addPiStatus.startsWith("Added") ? "success-text" : "error-text"}>{addPiStatus}</p>
+        ) : null}
+        <form onSubmit={handleAddPi} className="admin-form" style={{ maxWidth: "520px" }}>
+          <label>
+            Email
+            <input
+              type="email"
+              value={addPiEmail}
+              onChange={(e) => setAddPiEmail(e.target.value)}
+              placeholder="pi@university.edu"
+              required
+            />
+          </label>
+          <label>
+            Name
+            <input
+              type="text"
+              value={addPiName}
+              onChange={(e) => setAddPiName(e.target.value)}
+              placeholder="Dr Full Name"
+              required
+            />
+          </label>
+          <label>
+            Project
+            <select
+              value={addPiProjectId}
+              onChange={(e) => setAddPiProjectId(e.target.value)}
+              required
+            >
+              <option value="">Select a project...</option>
+              {projects.map((project) => (
+                <option key={project.projectId} value={project.projectId}>
+                  {project.projectName} ({project.projectId})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="primary-btn">Add PI</button>
+        </form>
+      </section>
+      ) : null}
+
+      {isGlobalAdmin ? (
+      <section className="panel">
         <div className="panel-heading-row">
           <div>
             <h2>PI Requests</h2>
-            <p className="subtext">Approve project-scoped PI access requests.</p>
+            <p className="subtext">Legacy: approve project-scoped PI access requests.</p>
           </div>
           <button type="button" className="secondary-btn" onClick={() => loadPiRequests(session)}>
             Refresh

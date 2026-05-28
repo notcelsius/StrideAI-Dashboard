@@ -8,19 +8,12 @@ import {
   getCognitoConfig,
   getStoredSession,
 } from "@/lib/cognitoAuth";
-import { createPiRequest } from "@/lib/dashboardApi";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(true);
   const [session, setSession] = useState(null);
-  const [requestName, setRequestName] = useState("");
-  const [requestEmail, setRequestEmail] = useState("");
-  const [requestProjectId, setRequestProjectId] = useState("");
-  const [requestNote, setRequestNote] = useState("");
-  const [requestStatus, setRequestStatus] = useState("");
-  const [isRequestingAccess, setIsRequestingAccess] = useState(false);
   const config = getCognitoConfig();
 
   useEffect(() => {
@@ -69,30 +62,6 @@ export default function LoginPage() {
     }
   }
 
-  async function handleRequestAccess(e) {
-    e.preventDefault();
-    setRequestStatus("");
-    setIsRequestingAccess(true);
-
-    try {
-      await createPiRequest({
-        name: requestName,
-        email: requestEmail,
-        requestedProjectId: requestProjectId,
-        note: requestNote,
-      });
-      setRequestStatus("Request submitted for admin review.");
-      setRequestName("");
-      setRequestEmail("");
-      setRequestProjectId("");
-      setRequestNote("");
-    } catch (requestError) {
-      setRequestStatus(requestError.message || "Unable to submit PI request.");
-    } finally {
-      setIsRequestingAccess(false);
-    }
-  }
-
   if (isBusy) {
     return (
       <main className="auth-page">
@@ -127,59 +96,6 @@ export default function LoginPage() {
             {isBusy ? "Checking session..." : "Sign In With Cognito"}
           </button>
         </div>
-
-        <div className="auth-divider" />
-
-        <form onSubmit={handleRequestAccess} className="auth-form">
-          <h2>Request PI Access</h2>
-          <label>
-            Name
-            <input
-              type="text"
-              value={requestName}
-              onChange={(e) => setRequestName(e.target.value)}
-              placeholder="Full name"
-              required
-            />
-          </label>
-          <label>
-            Email
-            <input
-              type="email"
-              value={requestEmail}
-              onChange={(e) => setRequestEmail(e.target.value)}
-              placeholder="name@ucdavis.edu"
-              required
-            />
-          </label>
-          <label>
-            Project ID
-            <input
-              type="text"
-              value={requestProjectId}
-              onChange={(e) => setRequestProjectId(e.target.value)}
-              placeholder="e.g. proj001"
-              required
-            />
-          </label>
-          <label>
-            Note <span className="subtext">(optional)</span>
-            <input
-              type="text"
-              value={requestNote}
-              onChange={(e) => setRequestNote(e.target.value)}
-              placeholder="Study/team context"
-            />
-          </label>
-          <button type="submit" disabled={isRequestingAccess}>
-            {isRequestingAccess ? "Submitting..." : "Submit Request"}
-          </button>
-          {requestStatus ? (
-            <p className={requestStatus.includes("submitted") ? "success-text" : "error-text"}>
-              {requestStatus}
-            </p>
-          ) : null}
-        </form>
       </section>
     </main>
   );

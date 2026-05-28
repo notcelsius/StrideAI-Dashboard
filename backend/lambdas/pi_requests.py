@@ -240,6 +240,55 @@ def approve_pi_request(event):
   return response(200, serialize_request(updated))
 
 
+def add_pi(event):
+  access = resolve_access_context(event)
+  require_admin_role(access)
+
+  body = parse_body(event)
+  email = normalize_email(body.get("email"))
+  name = str(body.get("name") or "").strip()
+  project_id = str(body.get("projectId") or "").strip()
+
+  if not email or "@" not in email:
+    return error_response(400, "valid email is required")
+  if not project_id:
+    return error_response(400, "projectId is required")
+  if not get_item(f"PROJECT#{project_id}", "METADATA"):
+    return error_response(404, "project not found")
+  require_project_access(access, project_id)
+
+  username, cognito_sub = ensure_pi_cognito_user({"email": email, "name": name})
+  if not cognito_sub:
+    return error_response(500, "Could not resolve Cognito sub for new user")
+
+  profile_key = {"pk": f"USER#{cognito_sub}", "sk": "PROFILE"}
+  profile = table.get_item(Key=profile_key).get("Item")
+  project_ids = updated_project_ids(profile, project_id)
+  now = iso_now()
+  table.update_item(
+    Key=profile_key,
+    UpdateExpression=(
+      "SET projectIds = :project_ids, username = :username, email = :email, "
+      "#role = :role, updatedAt = :updated_at REMOVE projectId"
+    ),
+    ExpressionAttributeNames={"#role": "role"},
+    ExpressionAttributeValues={
+      ":project_ids": project_ids,
+      ":username": name or username,
+      ":email": email,
+      ":role": "pi",
+      ":updated_at": now,
+    },
+  )
+
+  return response(200, {
+    "email": email,
+    "username": username,
+    "cognitoSub": cognito_sub,
+    "projectIds": project_ids,
+  })
+
+
 def reject_pi_request(event):
   access = resolve_access_context(event)
   require_admin_role(access)
