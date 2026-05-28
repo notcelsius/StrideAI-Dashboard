@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { getValidSession, getUserRole, logout } from "@/lib/cognitoAuth";
 import {
   getProjects,
@@ -16,7 +15,19 @@ import {
   approvePiRequest,
   rejectPiRequest,
   addPi,
+  updateSubjectGroups,
 } from "@/lib/dashboardApi";
+
+function parseGroupInput(text) {
+  return Array.from(
+    new Set(
+      String(text || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 export default function AdminPage() {
   const router = useRouter();
@@ -44,7 +55,14 @@ export default function AdminPage() {
 
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newParticipantName, setNewParticipantName] = useState("");
+  const [newSubjectGroups, setNewSubjectGroups] = useState("");
   const [createSubjectStatus, setCreateSubjectStatus] = useState("");
+
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState(() => new Set());
+  const [bulkGroupInput, setBulkGroupInput] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [editingSubject, setEditingSubject] = useState(null);
+  const [editGroupInput, setEditGroupInput] = useState("");
 
   const [deleteSub, setDeleteSub] = useState("");
   const [deleteUsername, setDeleteUsername] = useState("");
@@ -175,14 +193,96 @@ export default function AdminPage() {
     }
     try {
       await createSubject(session, newSubjectId, selectedProjectId, newParticipantName);
+      const initialGroups = parseGroupInput(newSubjectGroups);
+      if (initialGroups.length) {
+        await updateSubjectGroups(session, {
+          projectId: selectedProjectId,
+          subjectIds: [newSubjectId],
+          groups: initialGroups,
+          mode: "replace",
+        });
+      }
       setCreateSubjectStatus("Subject created successfully.");
       setNewSubjectId("");
       setNewParticipantName("");
+      setNewSubjectGroups("");
       const payload = await getProjectSubjects(session, selectedProjectId);
       setSubjects(payload.subjects || []);
     } catch (err) {
       setCreateSubjectStatus(err.message);
     }
+  }
+
+  async function handleBulkGroup(mode) {
+    setBulkStatus("");
+    const subjectIds = Array.from(selectedSubjectIds);
+    if (!subjectIds.length || !selectedProjectId) {
+      setBulkStatus("Select at least one subject.");
+      return;
+    }
+    const groups = mode === "clear" ? [] : parseGroupInput(bulkGroupInput);
+    if (mode !== "clear" && !groups.length) {
+      setBulkStatus("Enter at least one group name.");
+      return;
+    }
+    try {
+      await updateSubjectGroups(session, {
+        projectId: selectedProjectId,
+        subjectIds,
+        groups,
+        mode,
+      });
+      const payload = await getProjectSubjects(session, selectedProjectId);
+      setSubjects(payload.subjects || []);
+      setSelectedSubjectIds(new Set());
+      setBulkGroupInput("");
+      setBulkStatus(`${mode === "clear" ? "Cleared" : mode === "remove" ? "Removed" : "Updated"} groups on ${subjectIds.length} subject${subjectIds.length === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setBulkStatus(err.message);
+    }
+  }
+
+  function openEditModal(subject) {
+    setEditingSubject(subject);
+    const current = (subject.groups || []).map((group) => group.groupName || group.groupId).join(", ");
+    setEditGroupInput(current);
+  }
+
+  async function handleEditSave(mode) {
+    if (!editingSubject) return;
+    const groups = mode === "clear" ? [] : parseGroupInput(editGroupInput);
+    try {
+      await updateSubjectGroups(session, {
+        projectId: selectedProjectId,
+        subjectIds: [editingSubject.subjectId],
+        groups,
+        mode,
+      });
+      const payload = await getProjectSubjects(session, selectedProjectId);
+      setSubjects(payload.subjects || []);
+      setEditingSubject(null);
+      setEditGroupInput("");
+    } catch (err) {
+      setBulkStatus(err.message);
+    }
+  }
+
+  function toggleSubjectSelected(subjectId) {
+    setSelectedSubjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(subjectId)) next.delete(subjectId);
+      else next.add(subjectId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllOnPage() {
+    setSelectedSubjectIds((current) => {
+      if (subjects.length && subjects.every((subject) => current.has(subject.subjectId))) {
+        return new Set();
+      }
+      return new Set(subjects.map((subject) => subject.subjectId));
+    });
   }
 
   async function handleEnroll(e) {
@@ -296,9 +396,6 @@ export default function AdminPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          <Link href="/dashboard" className="secondary-btn" style={{ textDecoration: "none", display: "inline-block" }}>
-            Dashboard
-          </Link>
           <button onClick={logout} className="secondary-btn">Logout</button>
         </div>
       </header>
@@ -306,11 +403,14 @@ export default function AdminPage() {
       <section className="panel">
         <h2>Current Subjects</h2>
         {projects.length > 1 ? (
-          <label style={{ display: "block", maxWidth: "360px", marginBottom: "1rem" }}>
+          <label className="field-label">
             Project
             <select
               value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
+              onChange={(event) => {
+                setSelectedProjectId(event.target.value);
+                setSelectedSubjectIds(new Set());
+              }}
             >
               {projects.map((project) => (
                 <option key={project.projectId} value={project.projectId}>
@@ -320,6 +420,34 @@ export default function AdminPage() {
             </select>
           </label>
         ) : null}
+        {selectedSubjectIds.size > 0 ? (
+          <div className="bulk-action-bar">
+            <span className="bulk-action-count">{selectedSubjectIds.size} selected</span>
+            <input
+              type="text"
+              value={bulkGroupInput}
+              onChange={(e) => setBulkGroupInput(e.target.value)}
+              placeholder="cohort-a, responders"
+            />
+            <button type="button" className="primary-btn" onClick={() => handleBulkGroup("replace")}>
+              Replace
+            </button>
+            <button type="button" className="secondary-btn" onClick={() => handleBulkGroup("add")}>
+              Add
+            </button>
+            <button type="button" className="secondary-btn" onClick={() => handleBulkGroup("remove")}>
+              Remove
+            </button>
+            <button type="button" className="danger-btn" onClick={() => handleBulkGroup("clear")}>
+              Clear all
+            </button>
+          </div>
+        ) : null}
+        {bulkStatus ? (
+          <p className={bulkStatus.includes("group") || bulkStatus.includes("Cleared") || bulkStatus.includes("Updated") || bulkStatus.includes("Removed") ? "success-text" : "error-text"}>
+            {bulkStatus}
+          </p>
+        ) : null}
         {subjects.length === 0 ? (
           <p className="subtext">No subjects in this project.</p>
         ) : (
@@ -327,19 +455,57 @@ export default function AdminPage() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: "2rem" }}>
+                    <input
+                      type="checkbox"
+                      className="row-checkbox"
+                      checked={subjects.length > 0 && subjects.every((subject) => selectedSubjectIds.has(subject.subjectId))}
+                      onChange={toggleSelectAllOnPage}
+                      aria-label="Select all subjects"
+                    />
+                  </th>
                   <th>Subject ID</th>
                   <th>Participant</th>
+                  <th>Groups</th>
                   <th>Status</th>
                   <th>Linked User Sub</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {subjects.map((s) => (
                   <tr key={s.subjectId} className="subject-row">
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="row-checkbox"
+                        checked={selectedSubjectIds.has(s.subjectId)}
+                        onChange={() => toggleSubjectSelected(s.subjectId)}
+                        aria-label={`Select ${s.subjectId}`}
+                      />
+                    </td>
                     <td className="subject-link">{s.subjectId}</td>
                     <td>{s.participantName}</td>
+                    <td>
+                      {(s.groups || []).length ? (
+                        <span className="group-chip-list">
+                          {s.groups.map((group) => (
+                            <span key={group.groupId} className="group-chip">
+                              {group.groupName}
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="group-chip group-chip-muted">ungrouped</span>
+                      )}
+                    </td>
                     <td>{s.status}</td>
                     <td style={{ fontFamily: "monospace", fontSize: "0.82rem" }}>{s.userSub || "—"}</td>
+                    <td>
+                      <button type="button" className="secondary-btn" onClick={() => openEditModal(s)}>
+                        Edit groups
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -347,6 +513,34 @@ export default function AdminPage() {
           </div>
         )}
       </section>
+
+      {editingSubject ? (
+        <div className="modal-backdrop" onClick={() => setEditingSubject(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Edit groups · {editingSubject.subjectId}</h3>
+            <label className="field-label">
+              Groups (comma separated)
+              <input
+                type="text"
+                value={editGroupInput}
+                onChange={(e) => setEditGroupInput(e.target.value)}
+                placeholder="cohort-a, responders"
+              />
+            </label>
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setEditingSubject(null)}>
+                Cancel
+              </button>
+              <button type="button" className="danger-btn" onClick={() => handleEditSave("clear")}>
+                Clear
+              </button>
+              <button type="button" className="primary-btn" onClick={() => handleEditSave("replace")}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isGlobalAdmin ? (
       <section className="panel">
@@ -537,6 +731,15 @@ export default function AdminPage() {
               value={newParticipantName}
               onChange={(e) => setNewParticipantName(e.target.value)}
               placeholder="e.g. Jane Doe"
+            />
+          </label>
+          <label>
+            Groups <span className="subtext">(optional, comma separated)</span>
+            <input
+              type="text"
+              value={newSubjectGroups}
+              onChange={(e) => setNewSubjectGroups(e.target.value)}
+              placeholder="e.g. cohort-a, responders"
             />
           </label>
           <button type="submit" className="primary-btn">Create Subject</button>

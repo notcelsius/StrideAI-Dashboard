@@ -19,9 +19,22 @@ from common import (
 
 UNGROUPED = {"groupId": "ungrouped", "groupName": "Ungrouped"}
 
+MAX_RANGE_DAYS = 90
+
+SORTABLE_FIELDS = {"totalMiles", "averageMilesPerActiveDay", "activeDays", "sessionCount"}
+DEFAULT_SORT_BY = "totalMiles"
+DEFAULT_SORT_DIR = "desc"
+
 
 def bool_query(value):
   return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
+def subject_active_in_range(subject, start_date):
+  last_upload = (subject.get("lastUploadAt") or "").strip()
+  if not last_upload:
+    return True
+  return last_upload[:10] >= start_date
 
 
 def metric_float(row, key):
@@ -162,6 +175,16 @@ def lambda_handler(event, context):
       return error_response(400, "start must be before or equal to end")
 
     calendar_days = (end - start).days + 1
+    if calendar_days > MAX_RANGE_DAYS:
+      return error_response(400, f"date range cannot exceed {MAX_RANGE_DAYS} days")
+
+    sort_by = (get_query_param(event, "sortBy") or DEFAULT_SORT_BY).strip()
+    if sort_by not in SORTABLE_FIELDS:
+      return error_response(400, f"sortBy must be one of {sorted(SORTABLE_FIELDS)}")
+    sort_dir = (get_query_param(event, "sortDir") or DEFAULT_SORT_DIR).strip().lower()
+    if sort_dir not in {"asc", "desc"}:
+      return error_response(400, "sortDir must be asc or desc")
+
     project_filters = get_project_filters(event)
     group_filters = parse_csv_list(get_query_param(event, "groupId")) + parse_csv_list(get_query_param(event, "groupIds"))
     subject_filters = parse_csv_list(get_query_param(event, "subjectId")) + parse_csv_list(get_query_param(event, "subjectIds"))
@@ -192,7 +215,10 @@ def lambda_handler(event, context):
           continue
 
         linked_sub = subject.get("userSub") or ""
-        metrics = query_daily_metrics(linked_sub, start_date, end_date) if linked_sub else []
+        if linked_sub and subject_active_in_range(subject, start_date):
+          metrics = query_daily_metrics(linked_sub, start_date, end_date)
+        else:
+          metrics = []
         daily_stats = build_daily_stats(metrics)
         has_metrics = bool(daily_stats)
         linked = bool(linked_sub)
@@ -241,7 +267,18 @@ def lambda_handler(event, context):
       bucket = group_buckets[group_id]
       by_group.append({**bucket["group"], **finalize_bucket(bucket["totals"], calendar_days)})
 
-    participants.sort(key=lambda item: (item.get("projectName", ""), item.get("subjectId", "")))
+    direction_sign = -1 if sort_dir == "desc" else 1
+
+    def sort_key(item):
+      metrics = item.get("metrics") or {}
+      metric_value = float(metrics.get(sort_by, 0) or 0)
+      return (
+        direction_sign * metric_value,
+        item.get("projectName", ""),
+        item.get("subjectId", ""),
+      )
+
+    participants.sort(key=sort_key)
 
     return response(
       200,
@@ -252,6 +289,8 @@ def lambda_handler(event, context):
           "studyIds": project_filters,
           "groupIds": group_filters,
           "subjectIds": subject_filters,
+          "sortBy": sort_by,
+          "sortDir": sort_dir,
         },
         "aggregate": finalize_bucket(aggregate_bucket, calendar_days),
         "dailyTotals": finalize_daily_totals(daily_totals),
