@@ -259,9 +259,12 @@ All deployed with runtime Python 3.12, 256MB memory, 30s timeout.
 | `StrideAI-get_profile` | `/profile` | GET |
 | `StrideAI-get_projects` | `/projects` | GET |
 | `StrideAI-get_project_subjects` | `/projects/{projectId}/subjects` | GET |
+| `StrideAI-list_project_groups` | `/projects/{projectId}/groups` | GET |
 | `StrideAI-get_subject_miles` | `/subjects/{subjectId}/miles` | GET |
 | `StrideAI-export_subject_csv` | `/subjects/{subjectId}/export.csv` | GET |
 | `StrideAI-create_project` | `/admin/projects` | POST |
+| `StrideAI-upsert_project_group` | `/admin/groups` | POST |
+| `StrideAI-archive_project_group` | `/admin/groups/{groupId}` | DELETE |
 | `StrideAI-link_patient_subject` | `/admin/subject-links` | POST |
 | `StrideAI-update_subject_groups` | `/admin/subject-groups` | POST |
 | `StrideAI-get_participant_statistics` | `/participants/statistics` | GET |

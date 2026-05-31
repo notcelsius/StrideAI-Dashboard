@@ -106,8 +106,14 @@ Example upload item:
   - Returns accessible studies/projects. Admin users can see all project metadata.
 - `get_project_subjects`
   - Returns subject roster under `PROJECT#<projectId>`, including group metadata when present.
+- `list_project_groups`
+  - Returns active group-name settings under `PROJECT#<projectId>`.
+- `upsert_project_group`
+  - Creates or renames project-scoped group names.
+- `archive_project_group`
+  - Archives unused project group names. Assigned groups must be removed from subjects first.
 - `update_subject_groups`
-  - Adds, removes, replaces, or clears group assignments on one or more subjects.
+  - Adds, removes, replaces, or clears cataloged group assignments on one or more subjects.
 - `get_participant_statistics`
   - Aggregates participant metrics across accessible studies/projects and optional group filters.
 - `get_subject_miles`

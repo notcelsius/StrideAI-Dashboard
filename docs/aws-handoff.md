@@ -414,10 +414,13 @@ Expected REST proxy routes:
 
 - `GET /projects`
 - `GET /projects/{projectId}/subjects`
+- `GET /projects/{projectId}/groups`
 - `GET /subjects/{subjectId}/miles?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /subjects/{subjectId}/export.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `POST /admin/projects`
+- `POST /admin/groups`
+- `DELETE /admin/groups/{groupId}?projectId=<projectId>`
 - `POST /admin/subject-links`
 - `POST /admin/subject-groups`
 - `POST /uploads/presign`
@@ -581,6 +584,8 @@ Response:
 ```
 
 ### `POST /admin/subject-groups`
+Assignments must use groups that already exist in the project group catalog.
+
 Request:
 
 ```json
@@ -623,6 +628,38 @@ Response:
   ]
 }
 ```
+
+### `GET /projects/{projectId}/groups`
+Returns active group-name settings for the project.
+
+```json
+{
+  "projectId": "proj001",
+  "groups": [
+    {
+      "projectId": "proj001",
+      "groupId": "control",
+      "groupName": "Control",
+      "createdAt": "2026-05-31T00:00:00+00:00",
+      "updatedAt": "2026-05-31T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### `POST /admin/groups`
+Creates a group name when `groupId` is omitted. Updates/renames an existing group when `groupId` is provided.
+
+```json
+{
+  "projectId": "proj001",
+  "groupId": "control",
+  "groupName": "Control"
+}
+```
+
+### `DELETE /admin/groups/{groupId}?projectId=<projectId>`
+Archives an unused group name. Returns `409` if any subject is still assigned to the group.
 
 ### `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
 Optional filters:

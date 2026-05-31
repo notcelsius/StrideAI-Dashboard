@@ -5,6 +5,7 @@ from common import (
     normalize_subject_groups,
     options_response,
     parse_body,
+    require_cataloged_subject_groups,
     require_project_access,
     require_staff_role,
     resolve_access_context,
@@ -36,6 +37,7 @@ def lambda_handler(event, context):
             return error_response(400, "subjectId and projectId are required")
 
         require_project_access(access, project_id)
+        groups = require_cataloged_subject_groups(project_id, groups)
 
         existing = get_subject_record(project_id, subject_id)
         if existing:

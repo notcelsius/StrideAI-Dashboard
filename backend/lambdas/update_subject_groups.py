@@ -5,6 +5,7 @@ from common import (
   normalize_subject_groups,
   options_response,
   parse_body,
+  require_cataloged_subject_groups,
   require_project_access,
   require_staff_role,
   resolve_access_context,
@@ -107,6 +108,7 @@ def lambda_handler(event, context):
       return error_response(400, "groups or groupId is required unless mode is clear")
 
     require_project_access(access, project_id)
+    requested_groups = require_cataloged_subject_groups(project_id, requested_groups)
 
     updated_subjects = []
     for subject_id in subject_ids:

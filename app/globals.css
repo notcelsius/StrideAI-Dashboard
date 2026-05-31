@@ -991,6 +991,51 @@ th.sortable.active .sort-indicator {
   color: var(--muted);
 }
 
+.multi-select {
+  min-height: 7rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+}
+
+.bulk-group-select {
+  width: min(260px, 100%);
+  min-height: 2.6rem;
+}
+
+.group-settings-form {
+  max-width: 520px;
+  margin-bottom: 0.8rem;
+}
+
+.group-settings-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.group-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.group-settings-row:first-child {
+  border-top: 0;
+}
+
+.group-settings-row input[type="text"] {
+  max-width: 280px;
+}
+
+.group-id-text {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  margin-right: auto;
+}
+
 .bulk-action-bar {
   display: flex;
   flex-wrap: wrap;

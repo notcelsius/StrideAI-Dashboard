@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -187,6 +188,165 @@ def normalize_project_ids(value):
     seen.add(project_id)
     project_ids.append(project_id)
   return project_ids
+
+
+def normalize_group_name(group_name):
+  name = str(group_name or "").strip()
+  if not name:
+    raise ValueError("groupName is required")
+  if len(name) > 128:
+    raise ValueError("groupName must be 128 characters or fewer")
+  return name
+
+
+def normalize_group_id(group_id):
+  value = str(group_id or "").strip()
+  if not value:
+    raise ValueError("groupId is required")
+  if len(value) > 128:
+    raise ValueError("groupId must be 128 characters or fewer")
+  return value
+
+
+def group_id_from_name(group_name):
+  name = normalize_group_name(group_name)
+  group_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+  group_id = re.sub(r"-+", "-", group_id)
+  if not group_id:
+    raise ValueError("groupName must include at least one letter or number")
+  return group_id[:64].strip("-")
+
+
+def group_payload(group):
+  project_id = group.get("projectId") or str(group.get("pk", "")).replace("PROJECT#", "")
+  payload = {
+    "projectId": project_id,
+    "groupId": group.get("groupId") or str(group.get("sk", "")).replace("GROUP#", ""),
+    "groupName": group.get("groupName") or group.get("groupId") or "",
+    "createdAt": group.get("createdAt") or "",
+    "updatedAt": group.get("updatedAt") or "",
+  }
+  if group.get("archivedAt"):
+    payload["archivedAt"] = group.get("archivedAt")
+  return payload
+
+
+def get_project_group_record(project_id, group_id):
+  if not project_id or not group_id:
+    return None
+  return get_item(f"PROJECT#{project_id}", f"GROUP#{group_id}")
+
+
+def query_project_groups(project_id, include_archived=False):
+  if not project_id:
+    return []
+
+  items = []
+  query_kwargs = {
+    "KeyConditionExpression": Key("pk").eq(f"PROJECT#{project_id}") & Key("sk").begins_with("GROUP#")
+  }
+  while True:
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
+
+  if not include_archived:
+    items = [item for item in items if not item.get("archivedAt")]
+
+  return sorted(items, key=lambda item: (item.get("groupName") or item.get("groupId") or "").lower())
+
+
+def group_name_conflicts(project_id, group_name, group_id=""):
+  wanted_name = normalize_group_name(group_name).lower()
+  wanted_id = str(group_id or "").strip().lower()
+  for group in query_project_groups(project_id, include_archived=True):
+    if (group.get("groupId") or "").lower() == wanted_id:
+      continue
+    if (group.get("groupName") or "").strip().lower() == wanted_name:
+      return True
+  return False
+
+
+def require_cataloged_subject_groups(project_id, groups):
+  if not groups:
+    return []
+
+  active_groups = {
+    (group.get("groupId") or "").lower(): group
+    for group in query_project_groups(project_id)
+  }
+
+  missing = []
+  canonical_groups = []
+  for group in groups:
+    group_id = str(group.get("groupId") or "").strip()
+    existing = active_groups.get(group_id.lower())
+    if not existing:
+      missing.append(group_id)
+      continue
+    canonical_groups.append({
+      "groupId": existing.get("groupId"),
+      "groupName": existing.get("groupName") or existing.get("groupId"),
+    })
+
+  if missing:
+    raise ValueError(f"Unknown group(s): {', '.join(missing)}. Create them in Group Settings first.")
+
+  return normalize_subject_groups(canonical_groups)
+
+
+def project_group_is_assigned(project_id, group_id):
+  wanted = str(group_id or "").strip().lower()
+  if not wanted:
+    return False
+  for subject in query_project_subjects(project_id):
+    if wanted in {subject_group_id.lower() for subject_group_id in subject_group_ids(subject)}:
+      return True
+  return False
+
+
+def write_subject_group_fields(project_id, subject_id, groups):
+  now = iso_now()
+  group_ids = [group["groupId"] for group in groups]
+  group_names = [group["groupName"] for group in groups]
+  primary_group_id = group_ids[0] if group_ids else ""
+  primary_group_name = group_names[0] if group_names else ""
+
+  table.update_item(
+    Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
+    UpdateExpression=(
+      "SET #groups = :groups, groupIds = :group_ids, groupNames = :group_names, "
+      "groupId = :group_id, groupName = :group_name, updatedAt = :updated_at"
+    ),
+    ExpressionAttributeNames={"#groups": "groups"},
+    ExpressionAttributeValues={
+      ":groups": groups,
+      ":group_ids": group_ids,
+      ":group_names": group_names,
+      ":group_id": primary_group_id,
+      ":group_name": primary_group_name,
+      ":updated_at": now,
+    },
+  )
+
+
+def update_assigned_subject_group_name(project_id, group_id, group_name):
+  wanted = str(group_id or "").strip().lower()
+  updated = 0
+  for subject in query_project_subjects(project_id):
+    groups = subject_groups(subject)
+    changed = False
+    for group in groups:
+      if group["groupId"].lower() == wanted and group.get("groupName") != group_name:
+        group["groupName"] = group_name
+        changed = True
+    if changed:
+      write_subject_group_fields(project_id, subject["subjectId"], groups)
+      updated += 1
+  return updated
 
 
 def normalize_subject_groups(raw_groups=None, group_id=None, group_name=None):

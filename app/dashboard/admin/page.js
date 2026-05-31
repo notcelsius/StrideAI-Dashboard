@@ -16,17 +16,17 @@ import {
   rejectPiRequest,
   addPi,
   updateSubjectGroups,
+  getProjectGroups,
+  upsertProjectGroup,
+  archiveProjectGroup,
 } from "@/lib/dashboardApi";
 
-function parseGroupInput(text) {
-  return Array.from(
-    new Set(
-      String(text || "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean)
-    )
-  );
+function selectedValues(event) {
+  return Array.from(event.target.selectedOptions).map((option) => option.value);
+}
+
+function uniqueValues(values) {
+  return Array.from(new Set((values || []).map(String).filter(Boolean)));
 }
 
 export default function AdminPage() {
@@ -35,8 +35,10 @@ export default function AdminPage() {
   const [role, setRole] = useState("user");
   const [projects, setProjects] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [projectGroups, setProjectGroups] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isGroupsLoading, setIsGroupsLoading] = useState(false);
 
   const [newProjectId, setNewProjectId] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
@@ -53,16 +55,21 @@ export default function AdminPage() {
   const [enrollStatus, setEnrollStatus] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
 
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupSettingsStatus, setGroupSettingsStatus] = useState("");
+  const [renamingGroupId, setRenamingGroupId] = useState("");
+  const [renameGroupName, setRenameGroupName] = useState("");
+
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newParticipantName, setNewParticipantName] = useState("");
-  const [newSubjectGroups, setNewSubjectGroups] = useState("");
+  const [newSubjectGroupIds, setNewSubjectGroupIds] = useState([]);
   const [createSubjectStatus, setCreateSubjectStatus] = useState("");
 
   const [selectedSubjectIds, setSelectedSubjectIds] = useState(() => new Set());
-  const [bulkGroupInput, setBulkGroupInput] = useState("");
+  const [bulkGroupIds, setBulkGroupIds] = useState([]);
   const [bulkStatus, setBulkStatus] = useState("");
   const [editingSubject, setEditingSubject] = useState(null);
-  const [editGroupInput, setEditGroupInput] = useState("");
+  const [editGroupIds, setEditGroupIds] = useState([]);
 
   const [deleteSub, setDeleteSub] = useState("");
   const [deleteUsername, setDeleteUsername] = useState("");
@@ -77,6 +84,28 @@ export default function AdminPage() {
   const [addPiName, setAddPiName] = useState("");
   const [addPiProjectId, setAddPiProjectId] = useState("");
   const [addPiStatus, setAddPiStatus] = useState("");
+
+  const activeGroupOptions = useMemo(() => projectGroups, [projectGroups]);
+  const editGroupOptions = useMemo(() => {
+    const byId = new Map();
+    for (const group of projectGroups) {
+      byId.set(group.groupId, group);
+    }
+    for (const group of editingSubject?.groups || []) {
+      if (group.groupId && !byId.has(group.groupId)) {
+        byId.set(group.groupId, group);
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => (a.groupName || a.groupId).localeCompare(b.groupName || b.groupId));
+  }, [projectGroups, editingSubject]);
+
+  function groupsForIds(groupIds, options = activeGroupOptions) {
+    const byId = new Map(options.map((group) => [group.groupId, group]));
+    return uniqueValues(groupIds)
+      .map((groupId) => byId.get(groupId))
+      .filter(Boolean)
+      .map((group) => ({ groupId: group.groupId, groupName: group.groupName }));
+  }
 
   useEffect(() => {
     async function bootstrap() {
@@ -110,6 +139,25 @@ export default function AdminPage() {
     return nextProjects;
   }
 
+  async function refreshProjectGroups(activeSession = session, projectId = selectedProjectId) {
+    if (!activeSession || !projectId) {
+      setProjectGroups([]);
+      return [];
+    }
+    setIsGroupsLoading(true);
+    try {
+      const payload = await getProjectGroups(activeSession, projectId);
+      const groups = payload.groups || [];
+      setProjectGroups(groups);
+      return groups;
+    } catch (err) {
+      setGroupSettingsStatus(err.message);
+      return [];
+    } finally {
+      setIsGroupsLoading(false);
+    }
+  }
+
   async function loadPiRequests(activeSession = session) {
     if (!activeSession) return;
     setIsPiRequestsLoading(true);
@@ -129,12 +177,31 @@ export default function AdminPage() {
   }, [session, role]);
 
   useEffect(() => {
-    if (!session || !selectedProjectId) return;
+    if (!session || !selectedProjectId) {
+      setSubjects([]);
+      setProjectGroups([]);
+      return;
+    }
+    setSelectedSubjectIds(new Set());
+    setBulkGroupIds([]);
+    setNewSubjectGroupIds([]);
+    setEditingSubject(null);
+    setEditGroupIds([]);
+    setGroupSettingsStatus("");
     async function load() {
+      setIsGroupsLoading(true);
       try {
-        const payload = await getProjectSubjects(session, selectedProjectId);
-        setSubjects(payload.subjects || []);
-      } catch {}
+        const [subjectsPayload, groupsPayload] = await Promise.all([
+          getProjectSubjects(session, selectedProjectId),
+          getProjectGroups(session, selectedProjectId),
+        ]);
+        setSubjects(subjectsPayload.subjects || []);
+        setProjectGroups(groupsPayload.groups || []);
+      } catch (err) {
+        setGroupSettingsStatus(err.message);
+      } finally {
+        setIsGroupsLoading(false);
+      }
     }
     load();
   }, [session, selectedProjectId]);
@@ -184,6 +251,66 @@ export default function AdminPage() {
     }
   }
 
+  async function handleCreateGroup(e) {
+    e.preventDefault();
+    setGroupSettingsStatus("");
+    const groupName = newGroupName.trim();
+    if (!groupName || !selectedProjectId) {
+      setGroupSettingsStatus("Group name is required.");
+      return;
+    }
+    try {
+      await upsertProjectGroup(session, { projectId: selectedProjectId, groupName });
+      setNewGroupName("");
+      setGroupSettingsStatus("Group name saved.");
+      await refreshProjectGroups(session, selectedProjectId);
+    } catch (err) {
+      setGroupSettingsStatus(err.message);
+    }
+  }
+
+  function startRenameGroup(group) {
+    setRenamingGroupId(group.groupId);
+    setRenameGroupName(group.groupName || group.groupId);
+    setGroupSettingsStatus("");
+  }
+
+  async function handleRenameGroup(group) {
+    setGroupSettingsStatus("");
+    const groupName = renameGroupName.trim();
+    if (!groupName) {
+      setGroupSettingsStatus("Group name is required.");
+      return;
+    }
+    try {
+      await upsertProjectGroup(session, {
+        projectId: selectedProjectId,
+        groupId: group.groupId,
+        groupName,
+      });
+      setRenamingGroupId("");
+      setRenameGroupName("");
+      setGroupSettingsStatus("Group name updated.");
+      await refreshProjectGroups(session, selectedProjectId);
+      const payload = await getProjectSubjects(session, selectedProjectId);
+      setSubjects(payload.subjects || []);
+    } catch (err) {
+      setGroupSettingsStatus(err.message);
+    }
+  }
+
+  async function handleArchiveGroup(group) {
+    setGroupSettingsStatus("");
+    if (!window.confirm(`Archive group "${group.groupName || group.groupId}"?`)) return;
+    try {
+      await archiveProjectGroup(session, selectedProjectId, group.groupId);
+      setGroupSettingsStatus("Group archived.");
+      await refreshProjectGroups(session, selectedProjectId);
+    } catch (err) {
+      setGroupSettingsStatus(err.message);
+    }
+  }
+
   async function handleCreateSubject(e) {
     e.preventDefault();
     setCreateSubjectStatus("");
@@ -191,21 +318,13 @@ export default function AdminPage() {
       setCreateSubjectStatus("Subject ID is required.");
       return;
     }
+    const initialGroups = groupsForIds(newSubjectGroupIds);
     try {
-      await createSubject(session, newSubjectId, selectedProjectId, newParticipantName);
-      const initialGroups = parseGroupInput(newSubjectGroups);
-      if (initialGroups.length) {
-        await updateSubjectGroups(session, {
-          projectId: selectedProjectId,
-          subjectIds: [newSubjectId],
-          groups: initialGroups,
-          mode: "replace",
-        });
-      }
+      await createSubject(session, newSubjectId, selectedProjectId, newParticipantName, initialGroups);
       setCreateSubjectStatus("Subject created successfully.");
       setNewSubjectId("");
       setNewParticipantName("");
-      setNewSubjectGroups("");
+      setNewSubjectGroupIds([]);
       const payload = await getProjectSubjects(session, selectedProjectId);
       setSubjects(payload.subjects || []);
     } catch (err) {
@@ -220,9 +339,9 @@ export default function AdminPage() {
       setBulkStatus("Select at least one subject.");
       return;
     }
-    const groups = mode === "clear" ? [] : parseGroupInput(bulkGroupInput);
+    const groups = mode === "clear" ? [] : groupsForIds(bulkGroupIds);
     if (mode !== "clear" && !groups.length) {
-      setBulkStatus("Enter at least one group name.");
+      setBulkStatus("Select at least one group.");
       return;
     }
     try {
@@ -235,7 +354,7 @@ export default function AdminPage() {
       const payload = await getProjectSubjects(session, selectedProjectId);
       setSubjects(payload.subjects || []);
       setSelectedSubjectIds(new Set());
-      setBulkGroupInput("");
+      setBulkGroupIds([]);
       setBulkStatus(`${mode === "clear" ? "Cleared" : mode === "remove" ? "Removed" : "Updated"} groups on ${subjectIds.length} subject${subjectIds.length === 1 ? "" : "s"}.`);
     } catch (err) {
       setBulkStatus(err.message);
@@ -244,24 +363,24 @@ export default function AdminPage() {
 
   function openEditModal(subject) {
     setEditingSubject(subject);
-    const current = (subject.groups || []).map((group) => group.groupName || group.groupId).join(", ");
-    setEditGroupInput(current);
+    setEditGroupIds((subject.groups || []).map((group) => group.groupId).filter(Boolean));
   }
 
   async function handleEditSave(mode) {
     if (!editingSubject) return;
-    const groups = mode === "clear" ? [] : parseGroupInput(editGroupInput);
+    const groups = mode === "clear" ? [] : groupsForIds(editGroupIds, editGroupOptions);
+    const nextMode = mode === "clear" || groups.length ? mode : "clear";
     try {
       await updateSubjectGroups(session, {
         projectId: selectedProjectId,
         subjectIds: [editingSubject.subjectId],
         groups,
-        mode,
+        mode: nextMode,
       });
       const payload = await getProjectSubjects(session, selectedProjectId);
       setSubjects(payload.subjects || []);
       setEditingSubject(null);
-      setEditGroupInput("");
+      setEditGroupIds([]);
     } catch (err) {
       setBulkStatus(err.message);
     }
@@ -423,12 +542,20 @@ export default function AdminPage() {
         {selectedSubjectIds.size > 0 ? (
           <div className="bulk-action-bar">
             <span className="bulk-action-count">{selectedSubjectIds.size} selected</span>
-            <input
-              type="text"
-              value={bulkGroupInput}
-              onChange={(e) => setBulkGroupInput(e.target.value)}
-              placeholder="cohort-a, responders"
-            />
+            <select
+              multiple
+              className="multi-select bulk-group-select"
+              value={bulkGroupIds}
+              onChange={(e) => setBulkGroupIds(selectedValues(e))}
+              disabled={!activeGroupOptions.length}
+              aria-label="Select groups for selected subjects"
+            >
+              {activeGroupOptions.map((group) => (
+                <option key={group.groupId} value={group.groupId}>
+                  {group.groupName}
+                </option>
+              ))}
+            </select>
             <button type="button" className="primary-btn" onClick={() => handleBulkGroup("replace")}>
               Replace
             </button>
@@ -444,7 +571,7 @@ export default function AdminPage() {
           </div>
         ) : null}
         {bulkStatus ? (
-          <p className={bulkStatus.includes("group") || bulkStatus.includes("Cleared") || bulkStatus.includes("Updated") || bulkStatus.includes("Removed") ? "success-text" : "error-text"}>
+          <p className={/^(Cleared|Updated|Removed)/.test(bulkStatus) ? "success-text" : "error-text"}>
             {bulkStatus}
           </p>
         ) : null}
@@ -514,18 +641,100 @@ export default function AdminPage() {
         )}
       </section>
 
+      <section className="panel">
+        <div className="panel-heading-row">
+          <div>
+            <h2>Group Settings</h2>
+            <p className="subtext">Project group names available for subject assignment.</p>
+          </div>
+          <button type="button" className="secondary-btn" onClick={() => refreshProjectGroups(session, selectedProjectId)}>
+            Refresh
+          </button>
+        </div>
+        <form onSubmit={handleCreateGroup} className="admin-form group-settings-form">
+          <label>
+            Group Name
+            <input
+              type="text"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="e.g. Control Group"
+            />
+          </label>
+          <button type="submit" className="primary-btn">Add Group</button>
+        </form>
+        {groupSettingsStatus ? (
+          <p className={/saved|updated|archived/i.test(groupSettingsStatus) ? "success-text" : "error-text"}>
+            {groupSettingsStatus}
+          </p>
+        ) : null}
+        {isGroupsLoading ? <p className="subtext">Loading groups...</p> : null}
+        {!isGroupsLoading && activeGroupOptions.length === 0 ? (
+          <p className="subtext">No group names configured for this project.</p>
+        ) : null}
+        {!isGroupsLoading && activeGroupOptions.length > 0 ? (
+          <div className="group-settings-list">
+            {activeGroupOptions.map((group) => (
+              <div key={group.groupId} className="group-settings-row">
+                {renamingGroupId === group.groupId ? (
+                  <>
+                    <input
+                      type="text"
+                      value={renameGroupName}
+                      onChange={(e) => setRenameGroupName(e.target.value)}
+                      aria-label={`Rename ${group.groupName}`}
+                    />
+                    <button type="button" className="primary-btn" onClick={() => handleRenameGroup(group)}>
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => {
+                        setRenamingGroupId("");
+                        setRenameGroupName("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="group-chip">{group.groupName}</span>
+                    <span className="group-id-text">{group.groupId}</span>
+                    <button type="button" className="secondary-btn" onClick={() => startRenameGroup(group)}>
+                      Rename
+                    </button>
+                    <button type="button" className="danger-btn" onClick={() => handleArchiveGroup(group)}>
+                      Archive
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
       {editingSubject ? (
         <div className="modal-backdrop" onClick={() => setEditingSubject(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Edit groups · {editingSubject.subjectId}</h3>
             <label className="field-label">
-              Groups (comma separated)
-              <input
-                type="text"
-                value={editGroupInput}
-                onChange={(e) => setEditGroupInput(e.target.value)}
-                placeholder="cohort-a, responders"
-              />
+              Groups
+              <select
+                multiple
+                className="multi-select"
+                value={editGroupIds}
+                onChange={(e) => setEditGroupIds(selectedValues(e))}
+                aria-label={`Groups for ${editingSubject.subjectId}`}
+              >
+                {editGroupOptions.map((group) => (
+                  <option key={group.groupId} value={group.groupId}>
+                    {group.groupName}
+                  </option>
+                ))}
+              </select>
             </label>
             <div className="modal-actions">
               <button type="button" className="secondary-btn" onClick={() => setEditingSubject(null)}>
@@ -734,13 +943,20 @@ export default function AdminPage() {
             />
           </label>
           <label>
-            Groups <span className="subtext">(optional, comma separated)</span>
-            <input
-              type="text"
-              value={newSubjectGroups}
-              onChange={(e) => setNewSubjectGroups(e.target.value)}
-              placeholder="e.g. cohort-a, responders"
-            />
+            Groups <span className="subtext">(optional)</span>
+            <select
+              multiple
+              className="multi-select"
+              value={newSubjectGroupIds}
+              onChange={(e) => setNewSubjectGroupIds(selectedValues(e))}
+              disabled={!activeGroupOptions.length}
+            >
+              {activeGroupOptions.map((group) => (
+                <option key={group.groupId} value={group.groupId}>
+                  {group.groupName}
+                </option>
+              ))}
+            </select>
           </label>
           <button type="submit" className="primary-btn">Create Subject</button>
           {createSubjectStatus && (
