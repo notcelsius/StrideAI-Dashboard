@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   BarChart,
   Bar,
@@ -17,6 +18,8 @@ import {
   getParticipantStatistics,
 } from "@/lib/dashboardApi";
 import { useStudy } from "@/app/dashboard/StudyProvider";
+
+const StudyMapPanel = dynamic(() => import("@/components/StudyMapPanel"), { ssr: false });
 
 const SORTABLE_COLUMNS = [
   { key: "totalMiles", label: "Total Miles" },
@@ -251,6 +254,23 @@ export default function DashboardPage() {
         ) : (
           <p className="empty-state">No daily activity in this range.</p>
         )}
+      </section>
+
+      <section className="panel">
+        <h2>Activity Map</h2>
+        <p className="subtext" style={{ marginTop: "-0.4rem" }}>
+          Aggregate heatmap and location hubs across participants · {filters.start} to {filters.end}
+        </p>
+        <StudyMapPanel
+          session={session}
+          range={{ start: filters.start, end: filters.end }}
+          participants={participants}
+          disabledReason={
+            selectedProject
+              ? ""
+              : "Select a single study above to compute its aggregate activity map."
+          }
+        />
       </section>
 
       <section className="panel">
