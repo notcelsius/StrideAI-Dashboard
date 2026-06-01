@@ -117,10 +117,13 @@ export default function SubjectDetailPage() {
         range,
         subjectContext.project.projectId
       );
-      setExportFiles(payload.files || []);
+      const files = payload.files || [];
+      setExportFiles(files);
       setExportLoaded(true);
+      return files;
     } catch (loadError) {
       setError(loadError.message || "Unable to load CSV exports.");
+      throw loadError;
     } finally {
       setIsExportLoading(false);
     }
@@ -239,7 +242,10 @@ export default function SubjectDetailPage() {
       </section>
 
       <section className="panel">
-        <h2>Location Hubs</h2>
+        <h2>Activity Map</h2>
+        <p className="subtext" style={{ marginTop: "-0.4rem" }}>
+          GPS tracks, density heatmap, and location hubs · {range.start} to {range.end}
+        </p>
         <LocationHubsPanel
           exportFiles={exportFiles}
           exportLoaded={exportLoaded}
