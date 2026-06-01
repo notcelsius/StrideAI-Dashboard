@@ -119,6 +119,7 @@ def update_subject_last_upload(project_id, subject_id, timestamp):
         table.update_item(
             Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
             UpdateExpression="SET lastUploadAt = :timestamp, updatedAt = :timestamp",
+            ConditionExpression="attribute_exists(pk) AND attribute_exists(sk)",
             ExpressionAttributeValues={":timestamp": timestamp},
         )
     except Exception as exc:

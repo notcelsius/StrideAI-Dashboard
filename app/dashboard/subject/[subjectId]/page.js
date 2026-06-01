@@ -84,7 +84,12 @@ export default function SubjectDetailPage() {
 
       try {
         setError("");
-        const payload = await getSubjectMiles(session, subjectContext.subject.subjectId, range);
+        const payload = await getSubjectMiles(
+          session,
+          subjectContext.subject.subjectId,
+          range,
+          subjectContext.project.projectId
+        );
         if (!isMounted) return;
         setMetrics(payload);
       } catch (loadError) {
@@ -106,7 +111,12 @@ export default function SubjectDetailPage() {
     setIsExportLoading(true);
     try {
       setError("");
-      const payload = await getSubjectExportManifest(session, subjectContext.subject.subjectId, range);
+      const payload = await getSubjectExportManifest(
+        session,
+        subjectContext.subject.subjectId,
+        range,
+        subjectContext.project.projectId
+      );
       setExportFiles(payload.files || []);
       setExportLoaded(true);
     } catch (loadError) {
@@ -132,7 +142,7 @@ export default function SubjectDetailPage() {
   }[subject.status] || "#475569";
 
   return (
-    <main className="dashboard-shell">
+    <>
       <header className="dashboard-header">
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button
@@ -307,6 +317,6 @@ export default function SubjectDetailPage() {
           </table>
         </div>
       </section>
-    </main>
+    </>
   );
 }

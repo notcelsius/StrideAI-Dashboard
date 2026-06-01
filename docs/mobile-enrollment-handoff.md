@@ -65,6 +65,9 @@ The code is case-insensitive (the backend uppercases it).
 }
 ```
 
+**Note:** `participantName` is guaranteed to be non-empty. If no name was
+set during enrollment code creation, it falls back to `subjectId`.
+
 After this, navigate to the main app screen. All subsequent API calls
 (daily metrics upload, etc.) will work correctly.
 

@@ -1,4 +1,15 @@
-from common import error_response, get_subject_record, iso_now, options_response, parse_body, resolve_access_context, response, table
+from common import (
+  error_response,
+  get_subject_record,
+  iso_now,
+  options_response,
+  parse_body,
+  require_project_access,
+  require_staff_role,
+  resolve_access_context,
+  response,
+  table,
+)
 
 
 def lambda_handler(event, context):
@@ -8,8 +19,7 @@ def lambda_handler(event, context):
       return options_response()
 
     access = resolve_access_context(event)
-    if access["role"] not in {"admin", "coordinator"}:
-      return error_response(403, "Forbidden: only staff can link patient subjects")
+    require_staff_role(access)
 
     body = parse_body(event)
     patient_sub = body.get("patientSub")
@@ -17,6 +27,8 @@ def lambda_handler(event, context):
     project_id = body.get("projectId") or access.get("projectId")
     if not patient_sub or not subject_id or not project_id:
       return error_response(400, "patientSub, subjectId, and projectId are required")
+
+    require_project_access(access, project_id)
 
     subject = get_subject_record(project_id, subject_id)
     if not subject:
@@ -33,9 +45,10 @@ def lambda_handler(event, context):
     )
     table.update_item(
       Key={"pk": f"USER#{patient_sub}", "sk": "PROFILE"},
-      UpdateExpression="SET projectId = :project_id, updatedAt = :updated_at",
+      UpdateExpression="SET projectId = :project_id, subjectId = :subject_id, updatedAt = :updated_at",
       ExpressionAttributeValues={
         ":project_id": project_id,
+        ":subject_id": subject_id,
         ":updated_at": updated_at,
       },
     )

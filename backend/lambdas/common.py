@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -12,8 +13,13 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "StrideAI")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "stride-ai-s3")
 REGION = os.environ.get("AWS_REGION", "us-east-2")
 UPLOAD_INDEX_NAME = os.environ.get("UPLOAD_INDEX_NAME", "GSI1")
+DEFAULT_ADMIN_EMAIL_ALLOWLIST = "ehenricson@health.ucdavis.edu,ehenricson@ucdavis.edu"
+DEFAULT_TEMP_ADMIN_EMAIL_ALLOWLIST = "rsheth@ucdavis.edu"
+ADMIN_EMAIL_ALLOWLIST = os.environ.get("ADMIN_EMAIL_ALLOWLIST", DEFAULT_ADMIN_EMAIL_ALLOWLIST)
+TEMP_ADMIN_EMAIL_ALLOWLIST = os.environ.get("TEMP_ADMIN_EMAIL_ALLOWLIST", DEFAULT_TEMP_ADMIN_EMAIL_ALLOWLIST)
 
 CSV_CONTENT_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
+STAFF_ROLES = {"admin", "pi", "coordinator"}
 
 dynamo = boto3.resource("dynamodb", region_name=REGION)
 table = dynamo.Table(TABLE_NAME)
@@ -27,7 +33,7 @@ def response(status, body, content_type="application/json"):
     "headers": {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
-      "Access-Control-Allow-Methods": "OPTIONS,GET,POST",
+      "Access-Control-Allow-Methods": "OPTIONS,GET,POST,DELETE",
       "Content-Type": content_type,
     },
     "body": payload,
@@ -96,16 +102,28 @@ def extract_cognito_sub(event):
 
 def normalize_groups(raw_groups):
   if isinstance(raw_groups, list):
-    return raw_groups
-  if isinstance(raw_groups, str) and raw_groups.strip():
-    return [raw_groups]
+    return [str(group).strip() for group in raw_groups if str(group).strip()]
+  if isinstance(raw_groups, str):
+    value = raw_groups.strip()
+    if not value:
+      return []
+    if value.startswith("["):
+      try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+          return normalize_groups(parsed)
+      except Exception:
+        pass
+    return [group.strip() for group in value.split(",") if group.strip()]
   return []
 
 
 def resolve_role(claims):
-  groups = set(normalize_groups(claims.get("cognito:groups")))
-  if "admin" in groups or "pi_admin" in groups:
+  groups = {group.lower() for group in normalize_groups(claims.get("cognito:groups"))}
+  if "admin" in groups:
     return "admin"
+  if "pi" in groups:
+    return "pi"
   if "coordinator" in groups:
     return "coordinator"
   if "patient" in groups:
@@ -113,8 +131,316 @@ def resolve_role(claims):
   return "user"
 
 
+def is_staff_role(role):
+  return role in STAFF_ROLES
+
+
+def require_staff_role(access_context):
+  if not is_staff_role(access_context.get("role")):
+    raise PermissionError("Forbidden: only staff can perform this action")
+
+
+def require_admin_role(access_context):
+  if access_context.get("role") != "admin":
+    raise PermissionError("Forbidden: only admins can perform this action")
+
+
+def normalize_email(email):
+  return str(email or "").strip().lower()
+
+
+def allowed_admin_emails(include_temporary=True):
+  emails = set(normalize_email(email) for email in parse_csv_list(ADMIN_EMAIL_ALLOWLIST))
+  if include_temporary:
+    emails.update(normalize_email(email) for email in parse_csv_list(TEMP_ADMIN_EMAIL_ALLOWLIST))
+  return {email for email in emails if email}
+
+
+def is_admin_email_allowed(email, include_temporary=True):
+  return normalize_email(email) in allowed_admin_emails(include_temporary)
+
+
+def require_admin_email_allowed(email, include_temporary=True):
+  if not is_admin_email_allowed(email, include_temporary):
+    raise PermissionError("Forbidden: email is not in the admin allowlist")
+
+
 def get_item(pk, sk):
   return table.get_item(Key={"pk": pk, "sk": sk}).get("Item")
+
+
+def parse_csv_list(value):
+  if value is None:
+    return []
+  if isinstance(value, list):
+    values = value
+  else:
+    values = str(value).split(",")
+  return [str(item).strip() for item in values if str(item).strip()]
+
+
+def normalize_project_ids(value):
+  project_ids = []
+  seen = set()
+  for project_id in parse_csv_list(value):
+    if project_id in seen:
+      continue
+    seen.add(project_id)
+    project_ids.append(project_id)
+  return project_ids
+
+
+def normalize_group_name(group_name):
+  name = str(group_name or "").strip()
+  if not name:
+    raise ValueError("groupName is required")
+  if len(name) > 128:
+    raise ValueError("groupName must be 128 characters or fewer")
+  return name
+
+
+def normalize_group_id(group_id):
+  value = str(group_id or "").strip()
+  if not value:
+    raise ValueError("groupId is required")
+  if len(value) > 128:
+    raise ValueError("groupId must be 128 characters or fewer")
+  return value
+
+
+def group_id_from_name(group_name):
+  name = normalize_group_name(group_name)
+  group_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+  group_id = re.sub(r"-+", "-", group_id)
+  if not group_id:
+    raise ValueError("groupName must include at least one letter or number")
+  return group_id[:64].strip("-")
+
+
+def group_payload(group):
+  project_id = group.get("projectId") or str(group.get("pk", "")).replace("PROJECT#", "")
+  payload = {
+    "projectId": project_id,
+    "groupId": group.get("groupId") or str(group.get("sk", "")).replace("GROUP#", ""),
+    "groupName": group.get("groupName") or group.get("groupId") or "",
+    "createdAt": group.get("createdAt") or "",
+    "updatedAt": group.get("updatedAt") or "",
+  }
+  if group.get("archivedAt"):
+    payload["archivedAt"] = group.get("archivedAt")
+  return payload
+
+
+def get_project_group_record(project_id, group_id):
+  if not project_id or not group_id:
+    return None
+  return get_item(f"PROJECT#{project_id}", f"GROUP#{group_id}")
+
+
+def query_project_groups(project_id, include_archived=False):
+  if not project_id:
+    return []
+
+  items = []
+  query_kwargs = {
+    "KeyConditionExpression": Key("pk").eq(f"PROJECT#{project_id}") & Key("sk").begins_with("GROUP#")
+  }
+  while True:
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
+
+  if not include_archived:
+    items = [item for item in items if not item.get("archivedAt")]
+
+  return sorted(items, key=lambda item: (item.get("groupName") or item.get("groupId") or "").lower())
+
+
+def group_name_conflicts(project_id, group_name, group_id=""):
+  wanted_name = normalize_group_name(group_name).lower()
+  wanted_id = str(group_id or "").strip().lower()
+  for group in query_project_groups(project_id, include_archived=True):
+    if (group.get("groupId") or "").lower() == wanted_id:
+      continue
+    if (group.get("groupName") or "").strip().lower() == wanted_name:
+      return True
+  return False
+
+
+def require_cataloged_subject_groups(project_id, groups):
+  if not groups:
+    return []
+
+  active_groups = {
+    (group.get("groupId") or "").lower(): group
+    for group in query_project_groups(project_id)
+  }
+
+  missing = []
+  canonical_groups = []
+  for group in groups:
+    group_id = str(group.get("groupId") or "").strip()
+    existing = active_groups.get(group_id.lower())
+    if not existing:
+      missing.append(group_id)
+      continue
+    canonical_groups.append({
+      "groupId": existing.get("groupId"),
+      "groupName": existing.get("groupName") or existing.get("groupId"),
+    })
+
+  if missing:
+    raise ValueError(f"Unknown group(s): {', '.join(missing)}. Create them in Group Settings first.")
+
+  return normalize_subject_groups(canonical_groups)
+
+
+def project_group_is_assigned(project_id, group_id):
+  wanted = str(group_id or "").strip().lower()
+  if not wanted:
+    return False
+  for subject in query_project_subjects(project_id):
+    if wanted in {subject_group_id.lower() for subject_group_id in subject_group_ids(subject)}:
+      return True
+  return False
+
+
+def write_subject_group_fields(project_id, subject_id, groups):
+  now = iso_now()
+  group_ids = [group["groupId"] for group in groups]
+  group_names = [group["groupName"] for group in groups]
+  primary_group_id = group_ids[0] if group_ids else ""
+  primary_group_name = group_names[0] if group_names else ""
+
+  table.update_item(
+    Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
+    UpdateExpression=(
+      "SET #groups = :groups, groupIds = :group_ids, groupNames = :group_names, "
+      "groupId = :group_id, groupName = :group_name, updatedAt = :updated_at"
+    ),
+    ExpressionAttributeNames={"#groups": "groups"},
+    ExpressionAttributeValues={
+      ":groups": groups,
+      ":group_ids": group_ids,
+      ":group_names": group_names,
+      ":group_id": primary_group_id,
+      ":group_name": primary_group_name,
+      ":updated_at": now,
+    },
+  )
+
+
+def update_assigned_subject_group_name(project_id, group_id, group_name):
+  wanted = str(group_id or "").strip().lower()
+  updated = 0
+  for subject in query_project_subjects(project_id):
+    groups = subject_groups(subject)
+    changed = False
+    for group in groups:
+      if group["groupId"].lower() == wanted and group.get("groupName") != group_name:
+        group["groupName"] = group_name
+        changed = True
+    if changed:
+      write_subject_group_fields(project_id, subject["subjectId"], groups)
+      updated += 1
+  return updated
+
+
+def normalize_subject_groups(raw_groups=None, group_id=None, group_name=None):
+  groups = []
+  if raw_groups is None:
+    raw_groups = []
+  if isinstance(raw_groups, (str, dict)):
+    raw_groups = [raw_groups]
+  if not isinstance(raw_groups, list):
+    raise ValueError("groups must be an array, object, or string")
+
+  for raw_group in raw_groups:
+    if isinstance(raw_group, str):
+      candidate_id = raw_group.strip()
+      candidate_name = candidate_id
+    elif isinstance(raw_group, dict):
+      candidate_id = str(raw_group.get("groupId") or raw_group.get("id") or "").strip()
+      candidate_name = str(raw_group.get("groupName") or raw_group.get("name") or "").strip()
+      if not candidate_id:
+        candidate_id = candidate_name
+      if not candidate_name:
+        candidate_name = candidate_id
+    else:
+      raise ValueError("Each group must be a string or object")
+
+    if candidate_id:
+      groups.append({"groupId": candidate_id, "groupName": candidate_name or candidate_id})
+
+  if group_id or group_name:
+    candidate_id = str(group_id or group_name or "").strip()
+    candidate_name = str(group_name or group_id or "").strip()
+    if candidate_id:
+      groups.append({"groupId": candidate_id, "groupName": candidate_name or candidate_id})
+
+  deduped = []
+  seen = set()
+  for group in groups:
+    dedupe_key = group["groupId"].lower()
+    if dedupe_key in seen:
+      continue
+    seen.add(dedupe_key)
+    deduped.append(group)
+
+  return deduped
+
+
+def subject_groups(subject):
+  return normalize_subject_groups(
+    subject.get("groups") or [],
+    subject.get("groupId") or "",
+    subject.get("groupName") or "",
+  )
+
+
+def subject_group_ids(subject):
+  explicit_ids = parse_csv_list(subject.get("groupIds"))
+  ids = explicit_ids + [group["groupId"] for group in subject_groups(subject)]
+  deduped = []
+  seen = set()
+  for group_id in ids:
+    dedupe_key = group_id.lower()
+    if dedupe_key in seen:
+      continue
+    seen.add(dedupe_key)
+    deduped.append(group_id)
+  return deduped
+
+
+def subject_matches_group_filter(subject, group_ids):
+  if not group_ids:
+    return True
+  wanted = {group_id.lower() for group_id in group_ids}
+  subject_ids = subject_group_ids(subject)
+  if not subject_ids and "ungrouped" in wanted:
+    return True
+  return any(group_id.lower() in wanted for group_id in subject_ids)
+
+
+def serialize_subject(subject, include_user_sub=False):
+  groups = subject_groups(subject)
+  payload = {
+    "subjectId": subject.get("subjectId"),
+    "participantName": subject.get("participantName") or subject.get("subjectId"),
+    "status": subject.get("status") or "Unknown",
+    "lastUploadAt": subject.get("lastUploadAt") or "",
+    "groups": groups,
+    "groupIds": [group["groupId"] for group in groups],
+  }
+  if groups:
+    payload["groupId"] = groups[0]["groupId"]
+    payload["groupName"] = groups[0]["groupName"]
+  if include_user_sub:
+    payload["userSub"] = subject.get("userSub", "")
+  return payload
 
 
 def resolve_access_context(event):
@@ -131,18 +457,25 @@ def resolve_access_context(event):
       "role": role,
       "profile": None,
       "projectId": "",
+      "projectIds": [],
       "project": None,
       "username": claims.get("preferred_username") or claims.get("email") or caller_sub,
     }
 
   project_id = profile.get("projectId") or ""
+  project_ids = normalize_project_ids(profile.get("projectIds"))
+  if not is_staff_role(role) and project_id:
+    project_ids = normalize_project_ids(project_ids + [project_id])
+
   project = get_item(f"PROJECT#{project_id}", "METADATA") if project_id else None
   return {
     "callerSub": caller_sub,
     "role": role,
     "profile": profile,
     "projectId": project_id,
+    "projectIds": project_ids,
     "project": project,
+    "subjectId": profile.get("subjectId") or "",
     "username": profile.get("username") or claims.get("preferred_username") or claims.get("email") or caller_sub,
   }
 
@@ -150,7 +483,7 @@ def resolve_access_context(event):
 def require_project_access(access_context, project_id):
   if access_context["role"] == "admin":
     return
-  if not project_id or access_context.get("projectId") != project_id:
+  if not project_id or project_id not in access_context.get("projectIds", []):
     raise PermissionError("Forbidden: you do not have access to this project")
 
 
@@ -160,17 +493,17 @@ def get_subject_record(project_id, subject_id):
   return get_item(f"PROJECT#{project_id}", f"SUBJECT#{subject_id}")
 
 
-def require_subject_access(access_context, subject_id):
-  project_id = access_context.get("projectId", "")
+def require_subject_access(access_context, subject_id, project_id=None):
+  project_id = project_id or access_context.get("projectId", "")
   require_project_access(access_context, project_id)
 
   subject = get_subject_record(project_id, subject_id)
   if not subject:
     raise LookupError("Subject not found")
 
-  if access_context["role"] == "patient":
+  if not is_staff_role(access_context["role"]):
     linked_sub = subject.get("userSub")
-    if linked_sub and linked_sub != access_context["callerSub"]:
+    if linked_sub != access_context["callerSub"]:
       raise PermissionError("Forbidden: patient access is limited to the assigned subject")
 
   return subject
@@ -192,23 +525,87 @@ def parse_iso_date(value):
   return datetime.strptime(value, "%Y-%m-%d")
 
 
+def query_all_project_metadata():
+  items = []
+  scan_kwargs = {"FilterExpression": Attr("sk").eq("METADATA")}
+  while True:
+    response = table.scan(**scan_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    scan_kwargs["ExclusiveStartKey"] = last_key
+  return sorted(items, key=lambda item: item.get("projectId") or item.get("pk", ""))
+
+
+def list_accessible_projects(access_context, project_ids=None):
+  requested_ids = parse_csv_list(project_ids)
+  if access_context["role"] == "admin":
+    if requested_ids:
+      projects = []
+      for project_id in requested_ids:
+        project = get_item(f"PROJECT#{project_id}", "METADATA")
+        if project:
+          projects.append(project)
+      return projects
+    return query_all_project_metadata()
+
+  accessible_ids = access_context.get("projectIds", [])
+  if not accessible_ids:
+    return []
+  selected_ids = requested_ids or accessible_ids
+  if any(project_id not in accessible_ids for project_id in selected_ids):
+    raise PermissionError("Forbidden: you do not have access to this project")
+
+  projects = []
+  for project_id in selected_ids:
+    project = get_item(f"PROJECT#{project_id}", "METADATA")
+    if project:
+      projects.append(project)
+  return projects
+
+
+def project_payload(project):
+  project_id = project.get("projectId") or str(project.get("pk", "")).replace("PROJECT#", "")
+  return {
+    "projectId": project_id,
+    "projectName": project.get("projectName") or project_id,
+    "piName": project.get("piName") or "",
+    "adminName": project.get("adminName") or "",
+  }
+
+
 def query_project_subjects(project_id):
-  response = table.query(
-    KeyConditionExpression=Key("pk").eq(f"PROJECT#{project_id}") & Key("sk").begins_with("SUBJECT#")
-  )
-  items = response.get("Items", [])
+  items = []
+  query_kwargs = {
+    "KeyConditionExpression": Key("pk").eq(f"PROJECT#{project_id}") & Key("sk").begins_with("SUBJECT#")
+  }
+  while True:
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
   return sorted(items, key=lambda item: item.get("subjectId", ""))
 
 
 def query_daily_metrics(user_sub, start_date, end_date):
-  response = table.query(
-    KeyConditionExpression=Key("pk").eq(f"USER#{user_sub}") & Key("sk").between(
+  items = []
+  query_kwargs = {
+    "KeyConditionExpression": Key("pk").eq(f"USER#{user_sub}") & Key("sk").between(
       f"DAY#{start_date}",
       f"DAY#{end_date}",
     ),
-    FilterExpression=Attr("entityType").eq("DAILY_METRIC"),
-  )
-  items = response.get("Items", [])
+    "FilterExpression": Attr("entityType").eq("DAILY_METRIC"),
+  }
+  while True:
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
   return sorted(items, key=lambda item: item.get("date", ""))
 
 
@@ -219,17 +616,40 @@ def build_upload_gsi_keys(user_sub, created_at, upload_pk):
   }
 
 
+def update_subject_last_upload(project_id, subject_id, timestamp):
+  if not project_id or not subject_id or not timestamp:
+    return
+
+  try:
+    table.update_item(
+      Key={"pk": f"PROJECT#{project_id}", "sk": f"SUBJECT#{subject_id}"},
+      UpdateExpression="SET lastUploadAt = :timestamp, updatedAt = :timestamp",
+      ConditionExpression="attribute_exists(pk) AND attribute_exists(sk)",
+      ExpressionAttributeValues={":timestamp": timestamp},
+    )
+  except Exception as exc:
+    print(f"Unable to update subject lastUploadAt for {project_id}/{subject_id}: {exc}")
+
+
 def query_uploads_for_user(user_sub, start_date, end_date):
   start_timestamp = f"{start_date}T00:00:00+00:00"
   end_timestamp = f"{end_date}T23:59:59.999999+00:00"
-  response = table.query(
-    IndexName=UPLOAD_INDEX_NAME,
-    KeyConditionExpression=Key("GSI1PK").eq(f"USER#{user_sub}") & Key("GSI1SK").between(
+  items = []
+  query_kwargs = {
+    "IndexName": UPLOAD_INDEX_NAME,
+    "KeyConditionExpression": Key("GSI1PK").eq(f"USER#{user_sub}") & Key("GSI1SK").between(
       f"CREATED#{start_timestamp}",
       f"CREATED#{end_timestamp}#z",
     ),
-  )
-  return sorted(response.get("Items", []), key=lambda item: item.get("createdAt", ""))
+  }
+  while True:
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+    last_key = response.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
+  return sorted(items, key=lambda item: item.get("createdAt", ""))
 
 
 def generate_download_url(file_key, expires_in=300):

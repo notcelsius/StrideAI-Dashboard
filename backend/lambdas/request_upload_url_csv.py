@@ -13,6 +13,7 @@ from common import (
   response,
   s3_client,
   table,
+  update_subject_last_upload,
 )
 
 
@@ -72,6 +73,7 @@ def lambda_handler(event, context):
     }
     item.update(build_upload_gsi_keys(access["callerSub"], created_at, upload_pk))
     table.put_item(Item=item)
+    update_subject_last_upload(access["projectId"], access.get("subjectId"), created_at)
 
     return response(
       200,

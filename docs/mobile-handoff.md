@@ -27,8 +27,8 @@ Use the **id token** (not access token) from Cognito. The API Gateway Cognito au
 
 ### Cognito groups
 The backend checks `cognito:groups` in the JWT to determine role:
-- `admin` or `pi_admin` → admin role (full project access)
-- `coordinator` → coordinator role (project-scoped access)
+- `admin` → admin role (full project access)
+- `pi` or `coordinator` → project-scoped staff access
 - `patient` → patient role (own subject only)
 - No group → basic `user` role
 
@@ -68,11 +68,35 @@ Response:
 }
 ```
 
+### Get Profile
+```
+GET /profile
+```
+Returns the authenticated patient's enrollment profile. Used by the iOS app
+to determine enrollment status on launch.
+
+Response:
+```json
+{
+  "projectId": "proj001",
+  "subjectId": "SUB_004",
+  "participantName": "SUB_004",
+  "username": "913b7510-4011-7053-1aab-ba3a00ff70a7"
+}
+```
+
+`participantName` is guaranteed non-empty. Falls back to `subjectId` if no
+display name was set during enrollment.
+
+| Status | Error | Meaning |
+|--------|-------|---------|
+| 404 | `"No enrollment profile found"` | User has no PROFILE or no projectId |
+
 ### Get Project Subjects
 ```
 GET /projects/{projectId}/subjects
 ```
-Returns the subject roster for a project. Admin/coordinator users also see `userSub`.
+Returns the subject roster for a project. Admin/PI/coordinator users also see `userSub`.
 
 Response:
 ```json
@@ -212,10 +236,10 @@ Table: `StrideAI` (us-east-2)
 
 | Record type | pk | sk | Key fields |
 |-------------|----|----|------------|
-| User profile | `USER#<sub>` | `PROFILE` | `projectId`, `username` |
+| User profile | `USER#<sub>` | `PROFILE` | `projectId`, `subjectId`, `username` |
 | Daily metric | `USER#<sub>` | `DAY#<YYYY-MM-DD>` | `miles`, `distanceMeters`, `sessionCount` |
 | Project metadata | `PROJECT#<projectId>` | `METADATA` | `projectName`, `piName`, `adminName` |
-| Subject | `PROJECT#<projectId>` | `SUBJECT#<subjectId>` | `participantName`, `status`, `userSub` |
+| Subject | `PROJECT#<projectId>` | `SUBJECT#<subjectId>` | `participantName`, `status`, `userSub`, `groups`, `groupIds` |
 | Upload metadata | `UPLOAD#<uploadId>` | `USER#<sub>` | `fileKey`, `fileName`, `contentType`, `createdAt` |
 
 ### GSI1 (uploads by user + date)
@@ -232,12 +256,23 @@ All deployed with runtime Python 3.12, 256MB memory, 30s timeout.
 
 | Function name | Route | Method |
 |---------------|-------|--------|
+| `StrideAI-get_profile` | `/profile` | GET |
 | `StrideAI-get_projects` | `/projects` | GET |
 | `StrideAI-get_project_subjects` | `/projects/{projectId}/subjects` | GET |
+| `StrideAI-list_project_groups` | `/projects/{projectId}/groups` | GET |
 | `StrideAI-get_subject_miles` | `/subjects/{subjectId}/miles` | GET |
 | `StrideAI-export_subject_csv` | `/subjects/{subjectId}/export.csv` | GET |
+| `StrideAI-create_project` | `/admin/projects` | POST |
+| `StrideAI-upsert_project_group` | `/admin/groups` | POST |
+| `StrideAI-archive_project_group` | `/admin/groups/{groupId}` | DELETE |
 | `StrideAI-link_patient_subject` | `/admin/subject-links` | POST |
+| `StrideAI-update_subject_groups` | `/admin/subject-groups` | POST |
+| `StrideAI-get_participant_statistics` | `/participants/statistics` | GET |
 | `StrideAI-request_upload_url_csv` | `/uploads/presign` | POST |
+| `StrideAI-create_pi_request` | `/pi-requests` | POST |
+| `StrideAI-list_pi_requests` | `/admin/pi-requests` | GET |
+| `StrideAI-approve_pi_request` | `/admin/pi-requests/{requestId}/approve` | POST |
+| `StrideAI-reject_pi_request` | `/admin/pi-requests/{requestId}/reject` | POST |
 | `StrideAI-delete_user` | `/admin/users` | DELETE |
 | `daily-metrics-upload` | `/daily-metrics-upload/daily-metrics-upload` | POST |
 

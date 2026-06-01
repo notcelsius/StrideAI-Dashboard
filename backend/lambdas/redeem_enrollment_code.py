@@ -52,6 +52,8 @@ def lambda_handler(event, context):
             "pk": f"USER#{caller_sub}",
             "sk": "PROFILE",
             "projectId": project_id,
+            "subjectId": subject_id,
+            "participantName": participant_name or subject_id,
             "username": participant_name or caller_sub,
             "enrolledAt": now,
             "enrollmentCode": code,
@@ -79,7 +81,7 @@ def lambda_handler(event, context):
             "enrolled": True,
             "projectId": project_id,
             "subjectId": subject_id,
-            "participantName": participant_name,
+            "participantName": participant_name or subject_id,
         })
     except Exception as exc:
         return error_response(500, "Internal server error", str(exc))

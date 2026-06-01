@@ -3,6 +3,8 @@
 ## Overview
 The dashboard uses Cognito for authentication, DynamoDB for metadata and authorization lookups, and S3 for CSV blob storage. Daily miles remain the source of truth for analytics. Uploaded CSV files are opaque in v1 and are returned through presigned download URLs.
 
+For the end-to-end identity, project, PI/admin, participant enrollment, and upload flow, see [Backend Data Flow](./backend-data-flow.md).
+
 ## Architecture
 ```text
 [Cognito User]
@@ -54,10 +56,22 @@ The dashboard uses Cognito for authentication, DynamoDB for metadata and authori
   "projectId": "proj001",
   "participantName": "jdoe",
   "status": "active",
+  "groups": [
+    {
+      "groupId": "control",
+      "groupName": "Control"
+    }
+  ],
+  "groupIds": ["control"],
+  "groupNames": ["Control"],
+  "groupId": "control",
+  "groupName": "Control",
   "lastUploadAt": "2026-05-14T05:08:30.959871+00:00",
   "userSub": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb"
 }
 ```
+
+Subject group fields are optional and backward-compatible. `groups` is the canonical list; `groupIds`, `groupNames`, `groupId`, and `groupName` are convenience fields for roster display and simple filtering.
 
 ### Upload index GSI
 Add `GSI1` to the `StrideAI` table:
@@ -81,14 +95,27 @@ Example upload item:
 ```
 
 ## Lambda Set
+- `create_project`
+  - Admin-only study creation.
+  - Writes `PROJECT#<projectId> / METADATA`.
 - `request_upload_url_csv`
   - Validates CSV uploads.
   - Writes upload metadata with `GSI1PK`/`GSI1SK`.
   - Returns a presigned S3 PUT URL.
 - `get_projects`
-  - Returns the project from `PROFILE.projectId`.
+  - Returns accessible studies/projects. Admin users can see all project metadata.
 - `get_project_subjects`
-  - Returns subject roster under `PROJECT#<projectId>`.
+  - Returns subject roster under `PROJECT#<projectId>`, including group metadata when present.
+- `list_project_groups`
+  - Returns active group-name settings under `PROJECT#<projectId>`.
+- `upsert_project_group`
+  - Creates or renames project-scoped group names.
+- `archive_project_group`
+  - Archives unused project group names. Assigned groups must be removed from subjects first.
+- `update_subject_groups`
+  - Adds, removes, replaces, or clears cataloged group assignments on one or more subjects.
+- `get_participant_statistics`
+  - Aggregates participant metrics across accessible studies/projects and optional group filters.
 - `get_subject_miles`
   - Returns daily miles for a subject across a date range.
 - `export_subject_csv`
@@ -96,6 +123,10 @@ Example upload item:
   - Returns presigned S3 GET URLs for matching CSV files.
 - `link_patient_subject`
   - Links a Cognito patient user to a subject record.
+- `create_pi_request`
+  - Public PI access request intake for a name, email, target project, and optional note.
+- `list_pi_requests`, `approve_pi_request`, `reject_pi_request`
+  - Admin-only PI review flow. Approval creates or finds the Cognito user, adds the `pi` group, and writes the project-scoped profile.
 
 ## Frontend Flow
 1. Sign in with Cognito.
@@ -103,6 +134,7 @@ Example upload item:
 3. Load `/projects/{projectId}/subjects`.
 4. Load `/subjects/{subjectId}/miles?start=...&end=...`.
 5. Download CSV files from `/subjects/{subjectId}/export.csv?start=...&end=...`.
+6. Load `/participants/statistics?start=...&end=...` for cross-study/group aggregate participant stats.
 
 ## Preview Later
 CSV previews are intentionally deferred. When needed, add a parser Lambda that reads headers and stores parse metadata separately from upload metadata.

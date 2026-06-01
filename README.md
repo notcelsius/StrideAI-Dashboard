@@ -23,6 +23,13 @@ Copy `.env.example` into `.env.local` and fill in:
 - `NEXT_PUBLIC_COGNITO_*` for browser auth
 - `NEXT_PUBLIC_API_BASE_URL` for the API Gateway base URL
 
+Backend auth-related Lambda environment defaults:
+
+- `ADMIN_EMAIL_ALLOWLIST=ehenricson@health.ucdavis.edu,ehenricson@ucdavis.edu`
+- `TEMP_ADMIN_EMAIL_ALLOWLIST=rsheth@ucdavis.edu`
+- `PI_USER_POOL_ID=us-east-2_1AOUqzUwA`
+- `PI_GROUP_NAME=pi`
+
 If `NEXT_PUBLIC_API_BASE_URL` is not set, the dashboard falls back to local demo data so the UI remains runnable.
 
 ## Backend

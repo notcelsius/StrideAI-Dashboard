@@ -6,6 +6,7 @@ from common import (
     error_response,
     options_response,
     parse_body,
+    require_admin_role,
     resolve_access_context,
     response,
     table,
@@ -22,8 +23,7 @@ def lambda_handler(event, context):
             return options_response()
 
         access = resolve_access_context(event)
-        if access["role"] not in {"admin"}:
-            return error_response(403, "Forbidden: only admins can delete users")
+        require_admin_role(access)
 
         body = parse_body(event)
         user_sub = body.get("userSub")

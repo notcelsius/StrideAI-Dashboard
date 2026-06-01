@@ -11,6 +11,8 @@ This document is the handoff for the current StrideAI dashboard/backend work. It
 
 This handoff is intended for another agent or engineer to finish the AWS-side setup and connect the deployed backend to the frontend.
 
+For the current end-to-end identity, project, PI/admin, participant enrollment, and upload flow, see [Backend Data Flow](./backend-data-flow.md).
+
 ## Current Product Goal
 The app uses Cognito and AWS. The dashboard needs to support:
 
@@ -39,6 +41,8 @@ The current direction is:
 ### Auth/access requirements
 - Cognito is the identity system.
 - Backend authorization should ensure a user can only access data for the right project.
+- Cognito group roles are `admin` for global access and `pi`/`coordinator` for project-scoped staff access. `pi_admin` is not used.
+- Admin seed emails are `ehenricson@health.ucdavis.edu` and `ehenricson@ucdavis.edu`; `rsheth@ucdavis.edu` is a temporary development admin.
 - The desired domain model is:
   - `Project` owns many `Subjects`
   - `Subject` belongs to one `Project`
@@ -236,6 +240,7 @@ Shared helpers for:
 - extracting Cognito claims/sub
 - resolving access context from `PROFILE.projectId`
 - resolving roles from Cognito groups
+- enforcing global admin, project-scoped staff, and admin email allowlist helpers
 - requiring project or subject access
 - querying project subjects
 - querying daily metrics
@@ -275,6 +280,14 @@ Shared helpers for:
 - Updates:
   - the subject record’s `userSub`
   - the patient profile’s `projectId`
+
+#### `create_pi_request.py`
+- Public endpoint for PI access requests.
+- Stores `PI_REQUEST` records under `PI_REQUESTS / REQUEST#<requestId>`.
+
+#### `list_pi_requests.py`, `approve_pi_request.py`, `reject_pi_request.py`
+- Admin-only PI review endpoints.
+- Approval creates or finds the Cognito user in the admin/PI pool, adds group `pi`, and writes `USER#<sub> / PROFILE` with project-scoped PI access.
 
 #### `request_upload_url_csv.py`
 - CSV-only presign Lambda.
@@ -401,10 +414,20 @@ Expected REST proxy routes:
 
 - `GET /projects`
 - `GET /projects/{projectId}/subjects`
+- `GET /projects/{projectId}/groups`
 - `GET /subjects/{subjectId}/miles?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /subjects/{subjectId}/export.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- `POST /admin/projects`
+- `POST /admin/groups`
+- `DELETE /admin/groups/{groupId}?projectId=<projectId>`
 - `POST /admin/subject-links`
+- `POST /admin/subject-groups`
 - `POST /uploads/presign`
+- `POST /pi-requests`
+- `GET /admin/pi-requests`
+- `POST /admin/pi-requests/{requestId}/approve`
+- `POST /admin/pi-requests/{requestId}/reject`
 
 ### 6. Ensure auth context reaches Lambda
 The code expects Cognito claims in API Gateway authorizer context, primarily:
@@ -423,6 +446,31 @@ NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.us-east-2.amazonaws.com
 When this is not set, the frontend uses demo fallback data.
 
 ## API Contract Implemented In Code
+
+### `POST /admin/projects`
+Admin-only study creation.
+
+Request:
+
+```json
+{
+  "projectId": "proj002",
+  "projectName": "Balance Study",
+  "piName": "Dr. Smith",
+  "adminName": "Study Admin"
+}
+```
+
+Response:
+
+```json
+{
+  "projectId": "proj002",
+  "projectName": "Balance Study",
+  "piName": "Dr. Smith",
+  "adminName": "Study Admin"
+}
+```
 
 ### `GET /projects`
 Response:
@@ -451,7 +499,16 @@ Response:
       "subjectId": "SUB_001",
       "participantName": "jdoe",
       "status": "active",
-      "lastUploadAt": "2026-05-14T05:08:30.959871+00:00"
+      "lastUploadAt": "2026-05-14T05:08:30.959871+00:00",
+      "groups": [
+        {
+          "groupId": "control",
+          "groupName": "Control"
+        }
+      ],
+      "groupIds": ["control"],
+      "groupId": "control",
+      "groupName": "Control"
     }
   ]
 }
@@ -523,6 +580,126 @@ Response:
   "patientSub": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb",
   "subjectId": "SUB_001",
   "projectId": "proj001"
+}
+```
+
+### `POST /admin/subject-groups`
+Assignments must use groups that already exist in the project group catalog.
+
+Request:
+
+```json
+{
+  "projectId": "proj001",
+  "subjectIds": ["SUB_001", "SUB_002"],
+  "mode": "add",
+  "groups": [
+    {
+      "groupId": "control",
+      "groupName": "Control"
+    }
+  ]
+}
+```
+
+`mode` can be `replace`, `add`, `remove`, or `clear`.
+
+Response:
+
+```json
+{
+  "projectId": "proj001",
+  "mode": "add",
+  "updatedCount": 2,
+  "subjects": [
+    {
+      "subjectId": "SUB_001",
+      "participantName": "jdoe",
+      "status": "active",
+      "groups": [
+        {
+          "groupId": "control",
+          "groupName": "Control"
+        }
+      ],
+      "groupIds": ["control"],
+      "userSub": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb"
+    }
+  ]
+}
+```
+
+### `GET /projects/{projectId}/groups`
+Returns active group-name settings for the project.
+
+```json
+{
+  "projectId": "proj001",
+  "groups": [
+    {
+      "projectId": "proj001",
+      "groupId": "control",
+      "groupName": "Control",
+      "createdAt": "2026-05-31T00:00:00+00:00",
+      "updatedAt": "2026-05-31T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### `POST /admin/groups`
+Creates a group name when `groupId` is omitted. Updates/renames an existing group when `groupId` is provided.
+
+```json
+{
+  "projectId": "proj001",
+  "groupId": "control",
+  "groupName": "Control"
+}
+```
+
+### `DELETE /admin/groups/{groupId}?projectId=<projectId>`
+Archives an unused group name. Returns `409` if any subject is still assigned to the group.
+
+### `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
+Optional filters:
+- `projectId` / `projectIds`
+- `studyId` / `studyIds` as aliases for project IDs
+- `groupId` / `groupIds`
+- `subjectId` / `subjectIds`
+- `includeDaily=true` to include each participant's daily metric rows
+
+Response:
+
+```json
+{
+  "range": {
+    "start": "2026-05-01",
+    "end": "2026-05-14"
+  },
+  "aggregate": {
+    "participantCount": 3,
+    "linkedParticipantCount": 2,
+    "unlinkedParticipantCount": 1,
+    "participantsWithMetrics": 1,
+    "totalMiles": 90.16,
+    "totalDistanceMeters": 145105.1,
+    "totalSessionCount": 26,
+    "activeDays": 1,
+    "averageMilesPerParticipant": 30.05
+  },
+  "dailyTotals": [
+    {
+      "date": "2026-05-13",
+      "miles": 90.16,
+      "distanceMeters": 145105.1,
+      "sessionCount": 26,
+      "participantCount": 1
+    }
+  ],
+  "byStudy": [],
+  "byGroup": [],
+  "participants": []
 }
 ```
 
@@ -625,4 +802,3 @@ The next agent should be careful not to overwrite user work while packaging/depl
    - miles by date range
    - CSV export manifest
    - patient linkage
-
