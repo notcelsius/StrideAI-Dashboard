@@ -8,7 +8,7 @@ import HubLegend from "./HubLegend";
 
 const LocationHubsMap = dynamic(() => import("./LocationHubsMap"), { ssr: false });
 
-export default function LocationHubsPanel({ exportFiles, exportLoaded, onLoadExports, isExportLoading }) {
+export default function LocationHubsPanel({ exportFiles, exportLoaded, onLoadExports, isExportLoading, namedLocations }) {
   const [hubs, setHubs] = useState(null);
   const [points, setPoints] = useState(null);
   const [hubsLoading, setHubsLoading] = useState(false);
@@ -117,8 +117,13 @@ export default function LocationHubsPanel({ exportFiles, exportLoaded, onLoadExp
               No significant location hubs (no spot held long enough to register) — showing GPS tracks and heatmap.
             </p>
           )}
+          {namedLocations?.length ? (
+            <p className="subtext" style={{ marginTop: 0 }}>
+              📍 {namedLocations.length} patient-labeled location{namedLocations.length !== 1 ? "s" : ""} shown on the map.
+            </p>
+          ) : null}
           <div className="hub-map-layout">
-            <LocationHubsMap hubs={hubs} points={points} tracks={tracks} />
+            <LocationHubsMap hubs={hubs} points={points} tracks={tracks} namedLocations={namedLocations} />
             <HubLegend hubs={hubs || []} />
           </div>
           <button
