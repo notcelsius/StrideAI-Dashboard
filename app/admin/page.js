@@ -198,6 +198,12 @@ export default function AdminPage() {
       </header>
 
       <section className="panel">
+        <p className="eyebrow">Admin Management</p>
+        <h1 className="study-heading">Studies, PIs &amp; Accounts</h1>
+        <p className="subtext">Global actions across all studies.</p>
+      </section>
+
+      <section className="panel">
         <h2>Add PI</h2>
         <p className="subtext">
           Create a Cognito account in the admin pool, assign to a study, send an invite email with a temp password.
@@ -206,7 +212,7 @@ export default function AdminPage() {
         {addPiStatus ? (
           <p className={addPiStatus.startsWith("Added") ? "success-text" : "error-text"}>{addPiStatus}</p>
         ) : null}
-        <form onSubmit={handleAddPi} className="admin-form" style={{ maxWidth: "520px" }}>
+        <form onSubmit={handleAddPi} className="admin-form">
           <label>
             Email
             <input
@@ -314,7 +320,7 @@ export default function AdminPage() {
       <section className="panel">
         <h2>Create Study</h2>
         <p className="subtext">Create a new project before adding subjects or approving PI access.</p>
-        <form onSubmit={handleCreateProject} className="admin-form" style={{ maxWidth: "520px" }}>
+        <form onSubmit={handleCreateProject} className="admin-form">
           <label>
             Project ID
             <input
@@ -363,7 +369,7 @@ export default function AdminPage() {
       <section className="panel">
         <h2>Delete User</h2>
         <p className="subtext">Remove a user's profile, unlink from subjects, and optionally delete from Cognito.</p>
-        <form onSubmit={handleDelete} className="admin-form" style={{ maxWidth: "520px" }}>
+        <form onSubmit={handleDelete} className="admin-form">
           <label>
             User Cognito Sub
             <input

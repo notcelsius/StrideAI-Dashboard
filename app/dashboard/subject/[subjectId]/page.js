@@ -155,7 +155,7 @@ export default function SubjectDetailPage() {
           <div>
             <p className="eyebrow">{project.projectName} · {project.projectId}</p>
             <h1 style={{ fontSize: "1.25rem" }}>{subject.participantName}</h1>
-            <p className="subtext" style={{ fontFamily: "monospace" }}>{subject.subjectId}</p>
+            <p className="subtext" style={{ fontFamily: "var(--font-mono)" }}>{subject.subjectId}</p>
           </div>
         </div>
         <span

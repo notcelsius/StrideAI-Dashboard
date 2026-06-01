@@ -10,6 +10,8 @@
   --sand: #f7f0e3;
   --surface-strong: #1a1035;
   --danger: #dc2626;
+  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 * {
@@ -22,7 +24,7 @@ body {
   padding: 0;
   background: radial-gradient(circle at top right, #f8fbff 0%, var(--bg) 55%);
   color: var(--text);
-  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 
 h1,
@@ -33,7 +35,7 @@ p {
 
 h1,
 h2 {
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-sans);
 }
 
 a {
@@ -72,7 +74,7 @@ a {
 }
 
 .marketing-logo {
-  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--primary-deep);
@@ -544,7 +546,7 @@ a {
 }
 
 .credential-item {
-  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
 }
 
@@ -607,7 +609,7 @@ a {
 }
 
 .app-bar-logo {
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-sans);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--primary-deep);
@@ -758,7 +760,7 @@ a {
 
 .project-btn small {
   color: var(--muted);
-  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .project-btn.selected {
@@ -797,7 +799,7 @@ th {
   color: var(--primary);
   text-decoration: none;
   font-weight: 600;
-  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .subject-link:hover {
@@ -838,15 +840,6 @@ th {
   }
 }
 
-.range-controls input {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.65rem 0.75rem;
-  font-size: 0.95rem;
-  background: #fff;
-  color: var(--text);
-}
-
 .admin-forms-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -869,6 +862,7 @@ th {
 .admin-form {
   display: grid;
   gap: 0.7rem;
+  max-width: 520px;
 }
 
 .admin-form label {
@@ -878,11 +872,31 @@ th {
   font-weight: 600;
 }
 
-.admin-form input {
+/* Unified form-control styling: text-like inputs + textareas match the
+   select geometry/focus exactly so every box lines up (height, radius, font).
+   Checkboxes/radios are excluded so they keep native rendering. */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea {
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background-color: #fff;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 0.65rem 0.75rem;
-  font-size: 0.95rem;
+  padding: 0.6rem 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):hover,
+textarea:hover {
+  border-color: var(--primary);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 select {
@@ -958,7 +972,7 @@ select:focus {
 }
 
 .enrollment-code {
-  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.15em;
@@ -1159,7 +1173,7 @@ th.sortable.active .sort-indicator {
 
 .group-id-text {
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   margin-right: auto;
 }

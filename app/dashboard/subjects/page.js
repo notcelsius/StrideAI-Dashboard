@@ -428,7 +428,7 @@ export default function SubjectsPage() {
                       )}
                     </td>
                     <td>{s.status}</td>
-                    <td style={{ fontFamily: "monospace", fontSize: "0.82rem" }}>{s.userSub || "—"}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.82rem" }}>{s.userSub || "—"}</td>
                     <td>
                       <button type="button" className="secondary-btn" onClick={() => openEditModal(s)}>
                         Edit groups
@@ -555,7 +555,7 @@ export default function SubjectsPage() {
       <section className="panel">
         <h2>Create Subject</h2>
         <p className="subtext">Add a new subject to the current study before generating an enrollment code.</p>
-        <form onSubmit={handleCreateSubject} className="admin-form" style={{ maxWidth: "480px" }}>
+        <form onSubmit={handleCreateSubject} className="admin-form">
           <label>
             Subject ID
             <input
@@ -602,7 +602,7 @@ export default function SubjectsPage() {
       <section className="panel">
         <h2>Generate Enrollment Code</h2>
         <p className="subtext">Create a one-time code for a patient to enroll in the study via the mobile app.</p>
-        <form onSubmit={handleEnroll} className="admin-form" style={{ maxWidth: "480px" }}>
+        <form onSubmit={handleEnroll} className="admin-form">
           <label>
             Subject ID
             <input
@@ -635,7 +635,7 @@ export default function SubjectsPage() {
       <section className="panel">
         <h2>Link Patient to Subject</h2>
         <p className="subtext">Connect a Cognito patient account to a subject record in the current study.</p>
-        <form onSubmit={handleLink} className="admin-form" style={{ maxWidth: "480px" }}>
+        <form onSubmit={handleLink} className="admin-form">
           <label>
             Patient Cognito Sub
             <input
