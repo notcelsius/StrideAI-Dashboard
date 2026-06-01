@@ -579,6 +579,134 @@ a {
   font-weight: 600;
 }
 
+/* ── App bar (Study Management / Admin Management shell) ── */
+
+.app-bar {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.app-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.app-bar-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.app-bar-logo {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--primary-deep);
+}
+
+.app-bar-area {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.study-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--primary-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.35rem 0.6rem;
+}
+
+.study-switcher-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.study-switcher select {
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0.2rem 0.1rem;
+  cursor: pointer;
+}
+
+.study-switcher select:focus {
+  outline: none;
+}
+
+.app-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-bar-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.app-bar-username {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.app-bar-role {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+/* ── Nav tabs ── */
+
+.nav-tabs {
+  display: flex;
+  gap: 0.4rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0.25rem;
+}
+
+.nav-tab {
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+}
+
+.nav-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.study-heading {
+  font-size: 1.35rem;
+}
+
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

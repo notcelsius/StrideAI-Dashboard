@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,12 +12,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getValidSession, getUserRole, logout } from "@/lib/cognitoAuth";
 import {
   getDefaultDateRange,
   getParticipantStatistics,
-  getProjects,
 } from "@/lib/dashboardApi";
+import { useStudy } from "@/app/dashboard/StudyProvider";
 
 const SORTABLE_COLUMNS = [
   { key: "totalMiles", label: "Total Miles" },
@@ -59,60 +58,15 @@ function buildQueryString(filters) {
 }
 
 export default function DashboardPage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="centered-page">
-          <p>Loading dashboard...</p>
-        </main>
-      }
-    >
-      <DashboardPageInner />
-    </Suspense>
-  );
-}
-
-function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [session, setSession] = useState(null);
-  const [projects, setProjects] = useState([]);
+  const { session, selectedProject, selectedProjectId } = useStudy();
   const [statistics, setStatistics] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isStatsLoading, setIsStatsLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshedAt, setRefreshedAt] = useState(null);
 
   const filters = useMemo(() => readFiltersFromUrl(searchParams), [searchParams]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function bootstrap() {
-      const storedSession = await getValidSession();
-      if (!storedSession) {
-        router.replace("/login");
-        return;
-      }
-
-      try {
-        const payload = await getProjects(storedSession);
-        if (!isMounted) return;
-        setSession(storedSession);
-        setProjects(payload.projects || []);
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError.message || "Unable to load projects.");
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    }
-
-    bootstrap();
-    return () => {
-      isMounted = false;
-    };
-  }, [router]);
 
   const loadStatistics = useCallback(
     async (activeSession, activeFilters) => {
@@ -142,8 +96,9 @@ function DashboardPageInner() {
 
   useEffect(() => {
     if (!session) return;
-    loadStatistics(session, filters);
-  }, [session, filters, loadStatistics]);
+    // selectedProjectId resolves the "all" sentinel to "" (no study filter).
+    loadStatistics(session, { ...filters, projectId: selectedProjectId });
+  }, [session, filters, selectedProjectId, loadStatistics]);
 
   function updateFilters(patch) {
     const next = { ...filters, ...patch };
@@ -161,14 +116,17 @@ function DashboardPageInner() {
 
   function handleReset() {
     const defaults = getDefaultDateRange();
-    router.replace(`/dashboard?start=${defaults.start}&end=${defaults.end}`);
+    // Keep the active study selected when clearing the other filters.
+    const query = buildQueryString({
+      start: defaults.start,
+      end: defaults.end,
+      projectId: filters.projectId,
+    });
+    router.replace(`/dashboard${query ? `?${query}` : ""}`);
   }
 
   const groupOptions = useMemo(() => {
     const byId = new Map();
-    for (const study of statistics?.byStudy || []) {
-      // study-level totals don't carry group info
-    }
     for (const group of statistics?.byGroup || []) {
       if (!group.groupId) continue;
       byId.set(group.groupId, { groupId: group.groupId, groupName: group.groupName || group.groupId });
@@ -186,20 +144,6 @@ function DashboardPageInner() {
     [statistics]
   );
 
-  if (isLoading) {
-    return (
-      <main className="centered-page">
-        <p>Loading dashboard...</p>
-      </main>
-    );
-  }
-
-  const role = session ? getUserRole(session) : "user";
-  const isStaff = ["admin", "pi", "coordinator"].includes(role);
-  const claims = session?.claims || {};
-  const displayName = claims.name || claims.email || claims["cognito:username"] || "Dashboard User";
-  const displayId = claims.email || claims["cognito:username"] || claims.sub || "unknown-user";
-
   const aggregate = statistics?.aggregate || {
     participantCount: 0,
     linkedParticipantCount: 0,
@@ -208,31 +152,15 @@ function DashboardPageInner() {
     totalSessionCount: 0,
   };
   const participants = statistics?.participants || [];
+  const studyLabel = selectedProject
+    ? `${selectedProject.projectName} · ${selectedProject.projectId}`
+    : "All studies";
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">Signed in as</p>
-          <h1>{displayName}</h1>
-          <p className="subtext">{displayId}</p>
-          <p className="subtext" style={{ marginTop: "0.35rem" }}>
-            Role: <strong>{role}</strong>
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {isStaff && (
-            <Link href="/dashboard/admin" className="secondary-btn" style={{ textDecoration: "none" }}>
-              Manage
-            </Link>
-          )}
-          <button onClick={logout} className="secondary-btn">
-            Logout
-          </button>
-        </div>
-      </header>
-
+    <>
       <section className="panel">
+        <p className="eyebrow">Overview</p>
+        <h1 className="study-heading">{studyLabel}</h1>
         <div className="filter-bar">
           <label className="field-label">
             Start date
@@ -249,20 +177,6 @@ function DashboardPageInner() {
               value={filters.end}
               onChange={(e) => updateFilters({ end: e.target.value })}
             />
-          </label>
-          <label className="field-label">
-            Study
-            <select
-              value={filters.projectId}
-              onChange={(e) => updateFilters({ projectId: e.target.value })}
-            >
-              <option value="">All studies</option>
-              {projects.map((project) => (
-                <option key={project.projectId} value={project.projectId}>
-                  {project.projectName} ({project.projectId})
-                </option>
-              ))}
-            </select>
           </label>
           <label className="field-label">
             Group
@@ -410,6 +324,6 @@ function DashboardPageInner() {
           </div>
         )}
       </section>
-    </main>
+    </>
   );
 }

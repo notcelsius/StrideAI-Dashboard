@@ -142,7 +142,7 @@ export default function SubjectDetailPage() {
   }[subject.status] || "#475569";
 
   return (
-    <main className="dashboard-shell">
+    <>
       <header className="dashboard-header">
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button
@@ -317,6 +317,6 @@ export default function SubjectDetailPage() {
           </table>
         </div>
       </section>
-    </main>
+    </>
   );
 }
