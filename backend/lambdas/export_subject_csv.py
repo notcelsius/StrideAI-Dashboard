@@ -1,5 +1,5 @@
 from common import (
-  CSV_CONTENT_TYPES,
+  is_csv_export,
   error_response,
   generate_download_url,
   get_item,
@@ -40,9 +40,8 @@ def lambda_handler(event, context):
     upload_items = query_uploads_for_user(subject_sub, start_date, end_date)
     files = []
     for item in upload_items:
-      content_type = (item.get("contentType") or "").lower()
       file_name = item.get("fileName") or ""
-      matches_csv = content_type in CSV_CONTENT_TYPES or file_name.lower().endswith(".csv")
+      matches_csv = is_csv_export(file_name, item.get("contentType"))
       matches_project = (
         item.get("projectId") == subject_project_id or
         (subject_project_name and item.get("projectName") == subject_project_name)

@@ -19,6 +19,7 @@ ADMIN_EMAIL_ALLOWLIST = os.environ.get("ADMIN_EMAIL_ALLOWLIST", DEFAULT_ADMIN_EM
 TEMP_ADMIN_EMAIL_ALLOWLIST = os.environ.get("TEMP_ADMIN_EMAIL_ALLOWLIST", DEFAULT_TEMP_ADMIN_EMAIL_ALLOWLIST)
 
 CSV_CONTENT_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
+GZIP_CONTENT_TYPES = {"application/gzip", "application/x-gzip"}
 STAFF_ROLES = {"admin", "pi", "coordinator"}
 
 dynamo = boto3.resource("dynamodb", region_name=REGION)
@@ -509,12 +510,27 @@ def require_subject_access(access_context, subject_id, project_id=None):
   return subject
 
 
+def is_csv_export(file_name, content_type):
+  """True for plain CSV or gzipped CSV (.csv.gz) exports.
+
+  Used both to gate uploads (require_csv_upload) and to keep gzipped objects in
+  the dashboard export manifest. Kept CSV-specific: a bare .gz is not a CSV.
+  """
+  name = str(file_name or "").lower()
+  ctype = (content_type or "").strip().lower()
+  if name.endswith(".csv.gz"):
+    # Tolerate a missing/blank content type when reading stored metadata back.
+    return ctype in GZIP_CONTENT_TYPES or ctype == ""
+  return name.endswith(".csv") or ctype in CSV_CONTENT_TYPES
+
+
 def require_csv_upload(file_name, content_type):
+  name = str(file_name or "").lower()
   normalized_type = (content_type or "").strip().lower()
-  if normalized_type not in CSV_CONTENT_TYPES:
-    raise ValueError("contentType must be a supported CSV MIME type")
-  if not str(file_name or "").lower().endswith(".csv"):
-    raise ValueError("fileName must end with .csv")
+  is_gzip = name.endswith(".csv.gz") and normalized_type in GZIP_CONTENT_TYPES
+  is_plain = name.endswith(".csv") and normalized_type in CSV_CONTENT_TYPES
+  if not (is_gzip or is_plain):
+    raise ValueError("contentType/fileName must be CSV or gzipped CSV (.csv.gz)")
 
 
 def iso_now():

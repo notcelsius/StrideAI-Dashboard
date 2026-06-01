@@ -92,14 +92,20 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
     // --- Heatmap (density of raw points) ---
     const heatSource = new VectorSource({
       features: strideSample(points, HEATMAP_POINT_CAP).map(
-        (p) => new Feature({ geometry: new Point(fromLonLat([p.lon, p.lat])) })
+        (p) => new Feature({ geometry: new Point(fromLonLat([p.lon, p.lat])), accuracy: p.accuracy })
       ),
     });
     const heatmapLayer = new HeatmapLayer({
       source: heatSource,
       blur: 18,
       radius: 12,
-      weight: () => 1,
+      // Down-weight low-accuracy fixes so noisy points contribute less density.
+      // Unknown/legacy (-1, or missing) keeps full weight. ~1 at <=10m, tapering off.
+      weight: (f) => {
+        const a = f.get("accuracy");
+        if (a == null || a < 0) return 1;
+        return Math.max(0.2, Math.min(1, 10 / a));
+      },
       gradient: ["#00f", "#0ff", "#0f0", "#ff0", "#f00", "#fff"],
     });
     heatmapLayer.setVisible(showHeatmap);
