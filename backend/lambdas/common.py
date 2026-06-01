@@ -2,8 +2,9 @@ import base64
 import json
 import os
 import re
+import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
@@ -21,6 +22,14 @@ TEMP_ADMIN_EMAIL_ALLOWLIST = os.environ.get("TEMP_ADMIN_EMAIL_ALLOWLIST", DEFAUL
 CSV_CONTENT_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
 GZIP_CONTENT_TYPES = {"application/gzip", "application/x-gzip"}
 STAFF_ROLES = {"admin", "pi", "coordinator"}
+
+# Named-location ("hotspot label") constants. See get_subject_locations.py /
+# upload_location_labels.py and StrideAI/docs/NAMED_LOCATIONS_HANDOFF.md.
+MAX_LABEL_LENGTH = 128
+# Fixed namespace so legacy snapshot uploads (no client id) get a stable,
+# deterministic locationId derived from (label, rounded lat/lon). Re-uploading
+# the same label/spot is then idempotent instead of accumulating duplicates.
+LOCATION_ID_NAMESPACE = uuid.UUID("7c5d3d9e-2f4a-4f1b-9c0a-2b8d6e1f3a44")
 
 dynamo = boto3.resource("dynamodb", region_name=REGION)
 table = dynamo.Table(TABLE_NAME)
@@ -675,3 +684,114 @@ def generate_download_url(file_key, expires_in=300):
     ExpiresIn=expires_in,
     HttpMethod="GET",
   )
+
+
+# --- Named locations (patient-set "hotspot" labels) -------------------------
+# Items live at PK=USER#<sub> / SK=LOCATION#<locationId> alongside DAY#<date>
+# metrics. The dashboard reads them via get_subject_locations.py; the iOS app
+# writes them via upload_location_labels.py. See NAMED_LOCATIONS_HANDOFF.md.
+
+
+def to_decimal(value, field_name):
+  try:
+    return Decimal(str(value))
+  except (InvalidOperation, TypeError, ValueError) as exc:
+    raise ValueError(f"{field_name} must be numeric") from exc
+
+
+def derive_location_id(label, latitude, longitude):
+  """Deterministic id for legacy uploads with no client-supplied id.
+
+  Keyed on the normalized label and the rounded coordinate so re-uploading the
+  same label/spot upserts the same item instead of creating a duplicate. Once
+  the client sends a stable `id`, that wins and renames reconcile properly.
+  """
+  key = f"{str(label).strip().lower()}|{round(float(latitude), 6)}|{round(float(longitude), 6)}"
+  return str(uuid.uuid5(LOCATION_ID_NAMESPACE, key))
+
+
+def normalize_location_entry(raw):
+  if not isinstance(raw, dict):
+    raise ValueError("Each location must be an object")
+
+  label = str(raw.get("label") or "").strip()
+  if not label:
+    raise ValueError("label is required")
+  if len(label) > MAX_LABEL_LENGTH:
+    raise ValueError(f"label must be {MAX_LABEL_LENGTH} characters or fewer")
+
+  latitude = to_decimal(raw.get("latitude"), "latitude")
+  longitude = to_decimal(raw.get("longitude"), "longitude")
+  if not (Decimal("-90") <= latitude <= Decimal("90")):
+    raise ValueError("latitude must be between -90 and 90")
+  if not (Decimal("-180") <= longitude <= Decimal("180")):
+    raise ValueError("longitude must be between -180 and 180")
+
+  # Tolerate both rollout shapes: explicit `id` (preferred) or none (legacy).
+  location_id = str(raw.get("id") or raw.get("locationId") or "").strip()
+  if not location_id:
+    location_id = derive_location_id(label, latitude, longitude)
+
+  created_date = str(raw.get("createdDate") or "").strip() or iso_now()
+  return {
+    "locationId": location_id,
+    "label": label,
+    "latitude": latitude,
+    "longitude": longitude,
+    "createdDate": created_date,
+    "deleted": bool(raw.get("deleted", False)),
+  }
+
+
+def upsert_location(user_sub, entry):
+  """Idempotent upsert keyed on (USER#<sub>, LOCATION#<locationId>).
+
+  A soft-deleted entry (`deleted: true`) is written so the tombstone propagates
+  to every reader; query_user_locations hides it by default.
+  """
+  item = {
+    "pk": f"USER#{user_sub}",
+    "sk": f"LOCATION#{entry['locationId']}",
+    "entityType": "LOCATION",
+    "userId": user_sub,
+    "locationId": entry["locationId"],
+    "label": entry["label"],
+    "latitude": entry["latitude"],
+    "longitude": entry["longitude"],
+    "createdDate": entry["createdDate"],
+    "updatedAt": iso_now(),
+    "deleted": entry["deleted"],
+  }
+  table.put_item(Item=item)
+  return item
+
+
+def query_user_locations(user_sub, include_deleted=False):
+  if not user_sub:
+    return []
+  items = []
+  query_kwargs = {
+    "KeyConditionExpression": Key("pk").eq(f"USER#{user_sub}") & Key("sk").begins_with("LOCATION#")
+  }
+  while True:
+    result = table.query(**query_kwargs)
+    items.extend(result.get("Items", []))
+    last_key = result.get("LastEvaluatedKey")
+    if not last_key:
+      break
+    query_kwargs["ExclusiveStartKey"] = last_key
+
+  if not include_deleted:
+    items = [item for item in items if not item.get("deleted")]
+  return sorted(items, key=lambda item: item.get("createdDate") or "")
+
+
+def serialize_location(item):
+  return {
+    "id": item.get("locationId") or str(item.get("sk", "")).replace("LOCATION#", ""),
+    "label": item.get("label") or "",
+    "latitude": serialize_value(item.get("latitude")),
+    "longitude": serialize_value(item.get("longitude")),
+    "createdDate": item.get("createdDate") or "",
+    "updatedAt": item.get("updatedAt") or "",
+  }

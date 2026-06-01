@@ -7,6 +7,7 @@ import {
   findAccessibleSubject,
   getDefaultDateRange,
   getSubjectExportManifest,
+  getSubjectLocations,
   getSubjectMiles,
 } from "@/lib/dashboardApi";
 import {
@@ -34,6 +35,7 @@ export default function SubjectDetailPage() {
   const [session, setSession] = useState(null);
   const [subjectContext, setSubjectContext] = useState(null);
   const [metrics, setMetrics] = useState(null);
+  const [namedLocations, setNamedLocations] = useState([]);
   const [exportFiles, setExportFiles] = useState([]);
   const [exportLoaded, setExportLoaded] = useState(false);
   const [range, setRange] = useState(getDefaultDateRange());
@@ -104,6 +106,33 @@ export default function SubjectDetailPage() {
       isMounted = false;
     };
   }, [range, session, subjectContext]);
+
+  // Named-location labels are not date-ranged — they're the patient's current
+  // set — so load them once per subject, independent of the date controls. A
+  // failure here is non-blocking: the rest of the dashboard still renders.
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLocations() {
+      if (!session || !subjectContext?.subject) return;
+      try {
+        const payload = await getSubjectLocations(
+          session,
+          subjectContext.subject.subjectId,
+          subjectContext.project.projectId
+        );
+        if (isMounted) setNamedLocations(payload.locations || []);
+      } catch {
+        if (isMounted) setNamedLocations([]);
+      }
+    }
+
+    loadLocations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session, subjectContext]);
 
   async function handleLoadExports() {
     if (!session || !subjectContext?.subject) return;
@@ -244,14 +273,44 @@ export default function SubjectDetailPage() {
       <section className="panel">
         <h2>Activity Map</h2>
         <p className="subtext" style={{ marginTop: "-0.4rem" }}>
-          GPS tracks, density heatmap, and location hubs · {range.start} to {range.end}
+          GPS tracks, density heatmap, location hubs, and patient labels · {range.start} to {range.end}
         </p>
         <LocationHubsPanel
           exportFiles={exportFiles}
           exportLoaded={exportLoaded}
           onLoadExports={handleLoadExports}
           isExportLoading={isExportLoading}
+          namedLocations={namedLocations}
         />
+      </section>
+
+      <section className="panel">
+        <h2>Named Locations</h2>
+        <p className="subtext" style={{ marginTop: "-0.4rem" }}>
+          Places the participant labeled in the app (Home, Clinic, …). Shown as pins on the Activity Map above.
+        </p>
+        {namedLocations.length ? (
+          <ul className="named-loc-list">
+            {namedLocations.map((loc) => (
+              <li key={loc.id} className="named-loc-item">
+                <span className="named-loc-pin" aria-hidden="true" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p className="named-loc-label">{loc.label}</p>
+                  <p className="subtext" style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: "0.78rem" }}>
+                    {Number(loc.latitude).toFixed(5)}, {Number(loc.longitude).toFixed(5)}
+                  </p>
+                </div>
+                {loc.createdDate ? (
+                  <span className="subtext" style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>
+                    {new Date(loc.createdDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="subtext">No labeled locations for this participant yet.</p>
+        )}
       </section>
 
       <section className="panel">

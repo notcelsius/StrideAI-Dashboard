@@ -14,8 +14,30 @@ import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import Overlay from "ol/Overlay";
 import { fromLonLat } from "ol/proj";
-import { Circle as CircleStyle, Fill, Stroke, Style } from "ol/style";
+import { Circle as CircleStyle, Fill, Stroke, Style, Text } from "ol/style";
 import { HUB_COLORS, formatDwell } from "@/lib/hubComputation";
+
+// Patient-set label pins sit on top of the auto-detected hubs and use a cool
+// blue so they read as distinct from the warm habitual/frequented palette.
+const NAMED_PIN_FILL = "#2563eb";
+const NAMED_PIN_TEXT = "#1e3a8a";
+
+// Labels are free text the patient typed, so escape before injecting into the
+// popup's innerHTML.
+function escapeHtml(value) {
+  return String(value ?? "").replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+  );
+}
+
+function formatLabelDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
 
 // Cap heatmap input so OpenLayers stays smooth on large studies. Density still
 // reads correctly after a uniform stride sample.
@@ -33,7 +55,7 @@ function strideSample(arr, cap) {
   return out;
 }
 
-export default function LocationHubsMap({ hubs, points, tracks }) {
+export default function LocationHubsMap({ hubs, points, tracks, namedLocations }) {
   const mapRef = useRef(null);
   const popupRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -42,7 +64,7 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
 
   useEffect(() => {
     if (!mapRef.current) return;
-    const hasData = hubs?.length || points?.length || tracks?.length;
+    const hasData = hubs?.length || points?.length || tracks?.length || namedLocations?.length;
     if (!hasData) return;
 
     // --- Track polylines (one color per track group / participant) ---
@@ -89,6 +111,35 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
     });
     const hubSource = new VectorSource({ features: hubFeatures });
 
+    // --- Patient-set named locations (Home / Clinic / …) ---
+    const namedFeatures = (namedLocations || [])
+      .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude))
+      .map((loc) => {
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([loc.longitude, loc.latitude])),
+          namedLocation: loc,
+        });
+        feature.setStyle(
+          new Style({
+            image: new CircleStyle({
+              radius: 7,
+              fill: new Fill({ color: NAMED_PIN_FILL }),
+              stroke: new Stroke({ color: "#ffffff", width: 2 }),
+            }),
+            text: new Text({
+              text: loc.label || "",
+              offsetY: -16,
+              font: "600 12px system-ui, sans-serif",
+              fill: new Fill({ color: NAMED_PIN_TEXT }),
+              stroke: new Stroke({ color: "#ffffff", width: 3 }),
+              overflow: true,
+            }),
+          })
+        );
+        return feature;
+      });
+    const namedSource = new VectorSource({ features: namedFeatures });
+
     // --- Heatmap (density of raw points) ---
     const heatSource = new VectorSource({
       features: strideSample(points, HEATMAP_POINT_CAP).map(
@@ -122,10 +173,11 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
       target: mapRef.current,
       layers: [
         new TileLayer({ source: new OSM() }),
-        // Heatmap (bottom), then tracks, then hub circles on top.
+        // Heatmap (bottom), then tracks, hub circles, then named pins on top.
         heatmapLayer,
         new VectorLayer({ source: trackSource }),
         new VectorLayer({ source: hubSource }),
+        new VectorLayer({ source: namedSource }),
       ],
       overlays: [overlay],
       view: new View({ center: [0, 0], zoom: 2 }),
@@ -150,6 +202,8 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
       fitExtent = heatSource.getExtent();
     } else if (hubFeatures.length) {
       fitExtent = hubSource.getExtent();
+    } else if (namedFeatures.length) {
+      fitExtent = namedSource.getExtent();
     }
     if (fitExtent) {
       map.getView().fit(fitExtent, { padding: [60, 60, 60, 60], maxZoom: 17, duration: 500 });
@@ -158,7 +212,17 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
     map.on("click", (e) => {
       const feature = map.forEachFeatureAtPixel(e.pixel, (f) => f);
       const hub = feature?.get("hub");
-      if (hub) {
+      const named = feature?.get("namedLocation");
+      if (named) {
+        const setOn = formatLabelDate(named.createdDate);
+        popupRef.current.innerHTML = `
+          <div class="hub-popup">
+            <strong style="color:${NAMED_PIN_TEXT}">📍 ${escapeHtml(named.label)}</strong>
+            <br/>Patient-labeled location${setOn ? `<br/>Set ${setOn}` : ""}
+          </div>
+        `;
+        overlay.setPosition(e.coordinate);
+      } else if (hub) {
         popupRef.current.innerHTML = `
           <div class="hub-popup">
             <strong style="color:${HUB_COLORS[hub.classification]};text-transform:capitalize">${hub.classification}</strong>
@@ -173,7 +237,7 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
     });
 
     map.on("pointermove", (e) => {
-      const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f?.get("hub"));
+      const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f?.get("hub") || f?.get("namedLocation"));
       map.getTargetElement().style.cursor = hit ? "pointer" : "";
     });
 
@@ -182,7 +246,7 @@ export default function LocationHubsMap({ hubs, points, tracks }) {
       map.setTarget(null);
       heatmapLayerRef.current = null;
     };
-  }, [hubs, points, tracks]);
+  }, [hubs, points, tracks, namedLocations]);
 
   // Toggle heatmap visibility without rebuilding the map.
   useEffect(() => {

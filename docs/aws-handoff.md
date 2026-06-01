@@ -229,6 +229,8 @@ Added under [backend/lambdas](/Users/rohansheth/Documents/ECS193A/StrideAI-Dashb
 - `get_project_subjects.py`
 - `get_subject_miles.py`
 - `export_subject_csv.py`
+- `get_subject_locations.py`
+- `upload_location_labels.py`
 - `link_patient_subject.py`
 - `request_upload_url_csv.py`
 - `requirements.txt`
@@ -273,6 +275,18 @@ Shared helpers for:
 - Queries upload metadata using `GSI1`.
 - Filters to CSV uploads.
 - Returns a JSON manifest of downloadable files with presigned S3 GET URLs.
+
+#### `get_subject_locations.py`
+- Dual-mode read of patient-set named-location labels.
+- `GET /subjects/{subjectId}/locations`: staff/dashboard read — authorizes subject access, resolves the linked `userSub`, returns its non-deleted `LOCATION#` items.
+- `GET /locations` (no path param): patient self-read of own labels.
+- Labels are not date-ranged; an unlinked/empty subject returns `locations: []`.
+
+#### `upload_location_labels.py`
+- `POST /locations` — upserts the caller's labels (user derived from the JWT).
+- Accepts a bare array or `{ locations: [...] }`; tolerates entries with or without `id`/`deleted`.
+- Keyed on `(USER#<sub>, LOCATION#<locationId>)` so renames/deletes are idempotent; soft-deletes write a hidden tombstone.
+- See [NAMED_LOCATIONS_HANDOFF.md](../../StrideAI/docs/NAMED_LOCATIONS_HANDOFF.md) for the iOS-side rollout.
 
 #### `link_patient_subject.py`
 - Protected staff/admin endpoint.
@@ -417,6 +431,9 @@ Expected REST proxy routes:
 - `GET /projects/{projectId}/groups`
 - `GET /subjects/{subjectId}/miles?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `GET /subjects/{subjectId}/export.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- `GET /subjects/{subjectId}/locations?projectId=<projectId>` → `get_subject_locations`
+- `GET /locations` (patient self-read; same `get_subject_locations` Lambda, no path param)
+- `POST /locations` → `upload_location_labels`
 - `GET /participants/statistics?start=YYYY-MM-DD&end=YYYY-MM-DD`
 - `POST /admin/projects`
 - `POST /admin/groups`
@@ -558,6 +575,72 @@ Response:
       "createdAt": "2026-05-14T01:06:15.382197+00:00",
       "downloadUrl": "https://..."
     }
+  ]
+}
+```
+
+### `GET /subjects/{subjectId}/locations?projectId=<projectId>`
+Staff/dashboard read of a patient's current named-location labels ("hotspot"
+labels: Home / Clinic / …). Authorized via `require_subject_access`; resolves
+the subject's linked `userSub` and returns its non-deleted `LOCATION#` items.
+Labels are **not** date-ranged — they are the patient's current set. A subject
+with no linked user (or no labels yet) returns an empty `locations` array, not
+an error.
+
+Response:
+
+```json
+{
+  "subjectId": "SUB_001",
+  "projectId": "proj001",
+  "locations": [
+    {
+      "id": "b2c1f0e8-1a2b-5c3d-9e4f-6a7b8c9d0e1f",
+      "label": "Home",
+      "latitude": 38.544,
+      "longitude": -121.748,
+      "createdDate": "2026-05-31T14:25:30Z",
+      "updatedAt": "2026-05-31T14:40:02.117289+00:00"
+    }
+  ]
+}
+```
+
+`GET /locations` (no path param) hits the same Lambda and returns the **caller's
+own** labels (`{ "locations": [...] }`) for patient multi-device sync.
+
+### `POST /locations`
+Upsert the caller's named-location labels. The user is derived from the JWT, so
+the body never carries a `userSub`. Accepts either a bare JSON array or
+`{ "locations": [...] }`. Each entry tolerates the additive rollout shapes
+(with or without `id`/`deleted`); the upsert is keyed on the `locationId`, so
+re-uploads, renames, and deletes are idempotent. Legacy entries without an `id`
+get a stable id derived from `(label, rounded lat/lon)`.
+
+Stored at `PK=USER#<sub>`, `SK=LOCATION#<locationId>` with
+`{ label, latitude, longitude, createdDate, updatedAt, deleted }`.
+
+Request:
+
+```json
+[
+  { "id": "loc-uuid-1", "label": "Home",   "latitude": 38.544, "longitude": -121.748, "createdDate": "2026-05-31T14:25:30Z" },
+  { "id": "loc-uuid-2", "label": "Clinic", "latitude": 38.550, "longitude": -121.750 },
+  { "id": "loc-uuid-3", "label": "Old Gym", "latitude": 38.561, "longitude": -121.762, "deleted": true }
+]
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "userId": "d1bbb550-7031-70e3-bcdb-ce2584fd08eb",
+  "upsertedCount": 2,
+  "deletedCount": 1,
+  "locations": [
+    { "id": "loc-uuid-1", "label": "Home", "latitude": 38.544, "longitude": -121.748, "createdDate": "2026-05-31T14:25:30Z", "updatedAt": "2026-05-31T14:40:02.117289+00:00" },
+    { "id": "loc-uuid-2", "label": "Clinic", "latitude": 38.550, "longitude": -121.750, "createdDate": "2026-05-31T14:40:02.117289+00:00", "updatedAt": "2026-05-31T14:40:02.117289+00:00" }
   ]
 }
 ```
